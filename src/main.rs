@@ -5,7 +5,7 @@ use tokio::sync::RwLock;
 use ascom_alpaca::api::{Camera, CameraState, CargoServerInfo, Device, ImageArray, SensorType};
 use ascom_alpaca::{ASCOMError, ASCOMResult, Server};
 use async_trait::async_trait;
-use eyre::Result;
+
 use libqhyccd_sys::{CCDChipArea, QhyccdHandle};
 use tokio::sync::{oneshot, watch};
 use tokio::task;
@@ -122,6 +122,10 @@ impl QhyccdAlpaca {
             valid_binning_modes.push(BinningMode { symmetric_value: 1 });
         }
         Ok(valid_binning_modes)
+    }
+
+    fn transform_image(image: libqhyccd_sys::ImageData) -> ImageArray {
+        unimplemented!("transform_image not implemented")
     }
 }
 
@@ -724,9 +728,38 @@ impl Camera for QhyccdAlpaca {
                     };
                     Ok(image)
                 });
-                tokio::spawn(async move {
-                    let _ = done_tx.send(true);
-                });
+                let stop = stop_rx;
+                tokio::select! {
+                    image = image => {
+                        match image {
+                            Ok(image_result) => {
+                                match image_result {
+                                    Ok(image) => {camera.last_image = Some(QhyccdAlpaca::transform_image(image));
+                                    let _ = done_tx.send(true);
+                                    },
+                                    Err(e) => {
+                                        error!(?e, "failed to get image");
+                                        return Err(ASCOMError::UNSPECIFIED);
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                error!(?e, "failed to get image");
+                                return Err(ASCOMError::UNSPECIFIED);
+                            }
+                        }
+                    },
+                    _ = stop => {
+                        match libqhyccd_sys::abort_exposure_and_readout(camera.handle) {
+                            Ok(_) => {},
+                            Err(e) => {
+                                error!(?e, "failed to stop exposure: {:?}", e);
+                                return Err(ASCOMError::UNSPECIFIED);
+                            }
+                        }
+                    }
+                }
+                tokio::spawn(async move {});
                 Ok(())
             }
             None => {
@@ -737,12 +770,11 @@ impl Camera for QhyccdAlpaca {
     }
 
     async fn can_stop_exposure(&self) -> ASCOMResult<bool> {
-        //this is nto true for every camera, but better to say yes
-        Ok(true)
+        //this is not true for every camera, but better to say no here
+        Ok(false)
     }
 
     async fn can_abort_exposure(&self) -> ASCOMResult<bool> {
-        //this is nto true for every camera, but better to say yes
         Ok(true)
     }
 
