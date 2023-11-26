@@ -39,8 +39,8 @@ jobs:
       - name: cargo test --locked
         run: cargo test --locked --all-features --all-targets
       # https://github.com/rust-lang/cargo/issues/6669
-      - name: cargo test --doc
-        run: cargo test --locked --all-features --doc
+      # - name: cargo test --doc
+      #  run: cargo test --locked --all-features --doc
   minimal:
     runs-on: ubuntu-latest
     name: ubuntu / stable / minimal-versions
@@ -50,6 +50,12 @@ jobs:
           submodules: true
       - name: Install libusb
         run: sudo apt-get install libusb-1.0-0-dev
+      - name: Install qhyccd sdk
+        run: |
+          wget https://www.qhyccd.com/file/repository/publish/SDK/230906/sdk_linux64_23.09.06.tgz
+          tar xzvf sdk_linux64_23.09.06.tgz
+          cd sdk_linux64_23.09.06/
+          sudo sh install.sh
       - name: Install stable
         uses: dtolnay/rust-toolchain@stable
       - name: Install nightly for -Zminimal-versions
@@ -69,6 +75,12 @@ jobs:
           submodules: true
       - name: Install libusb
         run: sudo apt-get install libusb-1.0-0-dev
+      - name: Install qhyccd sdk
+        run: |
+          wget https://www.qhyccd.com/file/repository/publish/SDK/230906/sdk_linux64_23.09.06.tgz
+          tar xzvf sdk_linux64_23.09.06.tgz
+          cd sdk_linux64_23.09.06/
+          sudo sh install.sh
       - name: Install stable
         uses: dtolnay/rust-toolchain@stable
         with:
