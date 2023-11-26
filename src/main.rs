@@ -1,28 +1,43 @@
-use std::sync::Arc;
 use std::time::SystemTime;
 use tokio::sync::RwLock;
 
 use ascom_alpaca::api::{Camera, CameraState, CargoServerInfo, Device, ImageArray, SensorType};
 use ascom_alpaca::{ASCOMError, ASCOMResult, Server};
 use async_trait::async_trait;
+#[macro_use]
+extern crate educe;
+use cfg_if::cfg_if;
 
-use libqhyccd_sys::{CCDChipArea, QhyccdHandle};
+cfg_if! {
+    if #[cfg(test)] {
+        mod mocks;
+        use crate::mocks::MockSdk as Sdk;
+        use crate::mocks::MockCamera as QhyCamera;
+        use qhyccd_rs::CCDChipArea;
+    } else {
+        use qhyccd_rs::{CCDChipArea, Sdk, Camera as QhyCamera};
+    }
+}
+
 use tokio::sync::{oneshot, watch};
 use tokio::task;
 use tracing::{debug, error, trace};
 
 #[derive(Debug)]
 struct StopExposure {
-    want_image: bool,
+    _want_image: bool,
 }
 
-#[derive(Debug)]
+#[derive(Educe)]
+#[educe(Debug, PartialEq)]
 enum ExposingState {
     Idle,
     Exposing {
         start: SystemTime,
         expected_duration_us: f64,
+        #[educe(PartialEq(ignore))]
         stop_tx: Option<oneshot::Sender<StopExposure>>,
+        #[educe(PartialEq(ignore))]
         done_rx: watch::Receiver<bool>,
     },
 }
@@ -32,105 +47,81 @@ struct BinningMode {
     symmetric_value: i32,
 }
 impl BinningMode {
-    fn x(&self) -> i32 {
-        self.symmetric_value
-    }
-    fn y(&self) -> i32 {
+    fn value(&self) -> i32 {
         self.symmetric_value
     }
 }
 
 #[derive(Debug)]
 struct QhyccdCamera {
-    handle: libqhyccd_sys::QhyccdHandle,
-    binning: BinningMode,
-    valid_binning_modes: Vec<BinningMode>,
-    roi: Option<libqhyccd_sys::CCDChipArea>,
-    valid_readout_modes: Option<Vec<libqhyccd_sys::ReadoutMode>>,
-    last_exposure_start_time: Option<SystemTime>,
-    last_exposure_duration_us: Option<f64>,
-    last_image: Option<ImageArray>,
-    exposing: ExposingState,
-}
-
-#[derive(Debug)]
-struct QhyccdAlpaca {
     unique_id: String,
     name: String,
     description: String,
-    camera: Arc<RwLock<Option<QhyccdCamera>>>,
+    device: QhyCamera,
+    binning: RwLock<BinningMode>,
+    valid_bins: RwLock<Option<Vec<BinningMode>>>,
+    roi: RwLock<Option<qhyccd_rs::CCDChipArea>>,
+    last_exposure_start_time: RwLock<Option<SystemTime>>,
+    last_exposure_duration_us: RwLock<Option<f64>>,
+    last_image: RwLock<Option<ImageArray>>,
+    exposing: RwLock<ExposingState>,
 }
 
-impl QhyccdAlpaca {
-    fn get_readout_modes(
-        handle: QhyccdHandle,
-    ) -> ASCOMResult<Option<Vec<libqhyccd_sys::ReadoutMode>>> {
-        match libqhyccd_sys::get_number_of_readout_modes(handle) {
-            Ok(num) => {
-                let mut readout_modes = Vec::with_capacity(num as usize);
-                for i in 0..num {
-                    match libqhyccd_sys::get_readout_mode_name(handle, i) {
-                        Ok(readout_mode) => readout_modes.push(libqhyccd_sys::ReadoutMode {
-                            id: i,
-                            name: readout_mode,
-                        }),
-                        Err(e) => {
-                            error!(?e, "get_readout_mode failed");
-                            return Err(ASCOMError::NOT_CONNECTED);
-                        }
-                    }
-                }
-                Ok(Some(readout_modes))
-            }
-            Err(e) => {
-                error!(?e, "get_number_of_readout_modes failed");
-                Ok(None)
-            }
-        }
-    }
-
-    fn get_valid_binning_modes(handle: QhyccdHandle) -> ASCOMResult<Vec<BinningMode>> {
+impl QhyccdCamera {
+    fn get_valid_binning_modes(&self) -> Vec<BinningMode> {
         let mut valid_binning_modes = Vec::with_capacity(6);
-        if libqhyccd_sys::is_feature_supported(handle, libqhyccd_sys::CameraFeature::CamBin1x1mode)
+        if self
+            .device
+            .is_control_available(qhyccd_rs::Control::CamBin1x1mode)
             .is_ok()
         {
             valid_binning_modes.push(BinningMode { symmetric_value: 1 });
         }
-        if libqhyccd_sys::is_feature_supported(handle, libqhyccd_sys::CameraFeature::CamBin2x2mode)
+        if self
+            .device
+            .is_control_available(qhyccd_rs::Control::CamBin2x2mode)
             .is_ok()
         {
-            valid_binning_modes.push(BinningMode { symmetric_value: 1 });
+            valid_binning_modes.push(BinningMode { symmetric_value: 2 });
         }
-        if libqhyccd_sys::is_feature_supported(handle, libqhyccd_sys::CameraFeature::CamBin3x3mode)
+        if self
+            .device
+            .is_control_available(qhyccd_rs::Control::CamBin3x3mode)
             .is_ok()
         {
-            valid_binning_modes.push(BinningMode { symmetric_value: 1 });
+            valid_binning_modes.push(BinningMode { symmetric_value: 3 });
         }
-        if libqhyccd_sys::is_feature_supported(handle, libqhyccd_sys::CameraFeature::CamBin4x4mode)
+        if self
+            .device
+            .is_control_available(qhyccd_rs::Control::CamBin4x4mode)
             .is_ok()
         {
-            valid_binning_modes.push(BinningMode { symmetric_value: 1 });
+            valid_binning_modes.push(BinningMode { symmetric_value: 4 });
         }
-        if libqhyccd_sys::is_feature_supported(handle, libqhyccd_sys::CameraFeature::CamBin6x6mode)
+        if self
+            .device
+            .is_control_available(qhyccd_rs::Control::CamBin6x6mode)
             .is_ok()
         {
-            valid_binning_modes.push(BinningMode { symmetric_value: 1 });
+            valid_binning_modes.push(BinningMode { symmetric_value: 6 });
         }
-        if libqhyccd_sys::is_feature_supported(handle, libqhyccd_sys::CameraFeature::CamBin8x8mode)
+        if self
+            .device
+            .is_control_available(qhyccd_rs::Control::CamBin8x8mode)
             .is_ok()
         {
-            valid_binning_modes.push(BinningMode { symmetric_value: 1 });
+            valid_binning_modes.push(BinningMode { symmetric_value: 8 });
         }
-        Ok(valid_binning_modes)
+        valid_binning_modes
     }
 
-    fn transform_image(image: libqhyccd_sys::ImageData) -> ImageArray {
+    fn transform_image(_image: qhyccd_rs::ImageData) -> ImageArray {
         unimplemented!("transform_image not implemented")
     }
 }
 
 #[async_trait]
-impl Device for QhyccdAlpaca {
+impl Device for QhyccdCamera {
     fn static_name(&self) -> &str {
         &self.name
     }
@@ -140,13 +131,10 @@ impl Device for QhyccdAlpaca {
     }
 
     async fn connected(&self) -> ASCOMResult<bool> {
-        match &*self.camera.read().await {
-            Some(_) => Ok(true),
-            None => {
-                error!("camera not connected");
-                return Err(ASCOMError::NOT_CONNECTED);
-            }
-        }
+        self.device.is_open().map_err(|e| {
+            error!(?e, "is_open failed");
+            ASCOMError::NOT_CONNECTED
+        })
     }
 
     async fn set_connected(&self, connected: bool) -> ASCOMResult {
@@ -154,49 +142,25 @@ impl Device for QhyccdAlpaca {
             true => return Ok(()),
             false => match connected {
                 true => {
-                    let camera_lock = &mut *self.camera.write().await;
-                    let handle = match libqhyccd_sys::open_camera(self.unique_id.clone()) {
-                        Ok(handle) => handle,
-                        Err(e) => {
-                            error!(?e, "open_camera failed");
-                            return Err(ASCOMError::NOT_CONNECTED);
-                        }
-                    };
-                    let readout_modes = QhyccdAlpaca::get_readout_modes(handle)?;
-                    let roi = match libqhyccd_sys::get_effective_area(handle) {
+                    self.device.open().map_err(|e| {
+                        error!(?e, "open failed");
+                        ASCOMError::NOT_CONNECTED
+                    })?;
+                    let mut lock = self.roi.write().await;
+                    *lock = match self.device.get_effective_area() {
                         Ok(area) => Some(area),
                         Err(e) => {
                             error!(?e, "get_effective_area failed");
                             None
                         }
                     };
-                    let valid_binning_modes: Vec<BinningMode> =
-                        QhyccdAlpaca::get_valid_binning_modes(handle)?;
-                    let camera = QhyccdCamera {
-                        handle,
-                        binning: BinningMode { symmetric_value: 1 },
-                        valid_binning_modes,
-                        roi,
-                        valid_readout_modes: readout_modes,
-                        last_exposure_start_time: None,
-                        last_exposure_duration_us: None,
-                        last_image: None,
-                        exposing: ExposingState::Idle,
-                    };
-                    *camera_lock = Some(camera);
+                    *self.valid_bins.write().await = Some(self.get_valid_binning_modes());
                     Ok(())
                 }
-                false => {
-                    let mut camera_lock = self.camera.write().await;
-                    let camera = camera_lock.take().unwrap();
-                    match libqhyccd_sys::close_camera(camera.handle) {
-                        Ok(_) => Ok(()),
-                        Err(e) => {
-                            error!(?e, "close_camera failed");
-                            Err(ASCOMError::NOT_CONNECTED)
-                        }
-                    }
-                }
+                false => self.device.close().map_err(|e| {
+                    error!(?e, "close_camera failed");
+                    ASCOMError::NOT_CONNECTED
+                }),
             },
         }
     }
@@ -215,7 +179,7 @@ impl Device for QhyccdAlpaca {
 }
 
 #[async_trait]
-impl Camera for QhyccdAlpaca {
+impl Camera for QhyccdCamera {
     async fn bayer_offset_x(&self) -> ASCOMResult<i32> {
         Ok(0)
     }
@@ -225,22 +189,25 @@ impl Camera for QhyccdAlpaca {
     }
 
     async fn sensor_name(&self) -> ASCOMResult<String> {
-        match &*self.camera.read().await {
-            Some(camera) => match libqhyccd_sys::get_model(camera.handle) {
-                Ok(info) => Ok(info),
-                Err(e) => {
-                    error!(?e, "get_model failed");
-                    Err(ASCOMError::UNSPECIFIED)
-                }
-            },
-            None => return Err(ASCOMError::NOT_CONNECTED),
+        match self.connected().await {
+            Ok(true) => Ok(self.device.get_model().map_err(|e| {
+                error!(?e, "get_model failed");
+                ASCOMError::UNSPECIFIED
+            }))?,
+            _ => {
+                error!("camera not connected");
+                Err(ASCOMError::NOT_CONNECTED)
+            }
         }
     }
 
     async fn bin_x(&self) -> ASCOMResult<i32> {
-        match &*self.camera.read().await {
-            Some(camera) => Ok(camera.binning.x()),
-            None => return Err(ASCOMError::NOT_CONNECTED),
+        match self.connected().await {
+            Ok(true) => Ok(self.binning.read().await.value()),
+            _ => {
+                error!("camera not connected");
+                return Err(ASCOMError::NOT_CONNECTED);
+            }
         }
     }
 
@@ -248,23 +215,24 @@ impl Camera for QhyccdAlpaca {
         if bin_x < 1 {
             return Err(ASCOMError::invalid_value("bin_x must be >= 1"));
         }
-        match &mut *self.camera.write().await {
-            Some(camera) => {
-                match libqhyccd_sys::set_bin_mode(camera.handle, bin_x as u32, bin_x as u32) {
-                    //only supports symmetric binning
-                    Ok(_) => {
-                        camera.binning = BinningMode {
-                            symmetric_value: bin_x,
-                        };
-                        Ok(())
-                    }
-                    Err(e) => {
-                        error!(?e, "set_bin_mode failed");
-                        Err(ASCOMError::VALUE_NOT_SET)
-                    }
+        match self.connected().await {
+            Ok(true) => match self.device.set_bin_mode(bin_x as u32, bin_x as u32) {
+                //only supports symmetric binning
+                Ok(_) => {
+                    *self.binning.write().await = BinningMode {
+                        symmetric_value: bin_x,
+                    };
+                    Ok(())
                 }
+                Err(e) => {
+                    error!(?e, "set_bin_mode failed");
+                    Err(ASCOMError::VALUE_NOT_SET)
+                }
+            },
+            _ => {
+                error!("camera not connected");
+                return Err(ASCOMError::NOT_CONNECTED);
             }
-            None => Err(ASCOMError::NOT_CONNECTED),
         }
     }
 
@@ -277,15 +245,23 @@ impl Camera for QhyccdAlpaca {
     }
 
     async fn max_bin_x(&self) -> ASCOMResult<i32> {
-        match &*self.camera.read().await {
-            Some(ref camera) => match camera.valid_binning_modes.iter().map(|m| m.x()).max() {
+        match self.connected().await {
+            Ok(true) => match self
+                .get_valid_binning_modes()
+                .iter()
+                .map(|m| m.value())
+                .max()
+            {
                 Some(max) => Ok(max),
                 None => {
                     error!("valid_binning_modes is empty");
                     Err(ASCOMError::UNSPECIFIED)
                 }
             },
-            None => return Err(ASCOMError::NOT_CONNECTED),
+            _ => {
+                error!("camera not connected");
+                return Err(ASCOMError::NOT_CONNECTED);
+            }
         }
     }
 
@@ -294,12 +270,15 @@ impl Camera for QhyccdAlpaca {
     }
 
     async fn camera_state(&self) -> ASCOMResult<CameraState> {
-        match &*self.camera.read().await {
-            Some(ref camera) => match camera.exposing {
+        match self.connected().await {
+            Ok(true) => match *self.exposing.read().await {
                 ExposingState::Idle => Ok(CameraState::Idle),
                 ExposingState::Exposing { .. } => Ok(CameraState::Exposing),
             },
-            None => return Err(ASCOMError::NOT_CONNECTED),
+            _ => {
+                error!("camera not connected");
+                return Err(ASCOMError::NOT_CONNECTED);
+            }
         }
     }
 
@@ -329,63 +308,76 @@ impl Camera for QhyccdAlpaca {
     }
 
     async fn has_shutter(&self) -> ASCOMResult<bool> {
-        match &*self.camera.read().await {
-            Some(ref camera) => {
-                match libqhyccd_sys::is_feature_supported(
-                    camera.handle,
-                    libqhyccd_sys::CameraFeature::CamMechanicalShutter,
-                ) {
-                    Ok(_) => Ok(true),
-                    Err(e) => {
-                        debug!(?e, "is_feature_supported failed for CamMechanicalShutter");
-                        Ok(false)
-                    }
+        match self.connected().await {
+            Ok(true) => match self
+                .device
+                .is_control_available(qhyccd_rs::Control::CamMechanicalShutter)
+            {
+                Ok(_) => Ok(true),
+                Err(e) => {
+                    debug!(?e, "is_control_available failed for CamMechanicalShutter");
+                    Ok(false)
                 }
+            },
+            _ => {
+                error!("camera not connected");
+                return Err(ASCOMError::NOT_CONNECTED);
             }
-            None => return Err(ASCOMError::NOT_CONNECTED),
         }
     }
 
     async fn image_array(&self) -> ASCOMResult<ImageArray> {
-        match &*self.camera.read().await {
-            Some(ref camera) => match camera.last_image.clone() {
+        match self.connected().await {
+            Ok(true) => match (*self.last_image.read().await).clone() {
                 Some(image) => Ok(image),
                 None => Err(ASCOMError::VALUE_NOT_SET),
             },
-            None => return Err(ASCOMError::NOT_CONNECTED),
+            _ => {
+                error!("camera not connected");
+                return Err(ASCOMError::NOT_CONNECTED);
+            }
         }
     }
 
     async fn image_ready(&self) -> ASCOMResult<bool> {
-        match &*self.camera.read().await {
-            Some(ref camera) => match libqhyccd_sys::get_remaining_exposure_us(camera.handle) {
+        match self.connected().await {
+            Ok(true) => match self.device.get_remaining_exposure_us() {
                 Ok(remaining) => Ok(remaining == 0),
                 Err(e) => {
                     error!(?e, "get_remaining_exposure_us failed");
                     Err(ASCOMError::UNSPECIFIED)
                 }
             },
-            None => return Err(ASCOMError::NOT_CONNECTED),
+            _ => {
+                error!("camera not connected");
+                return Err(ASCOMError::NOT_CONNECTED);
+            }
         }
     }
 
     async fn last_exposure_start_time(&self) -> ASCOMResult<SystemTime> {
-        match &*self.camera.read().await {
-            Some(ref camera) => match camera.last_exposure_start_time {
+        match self.connected().await {
+            Ok(true) => match *self.last_exposure_start_time.read().await {
                 Some(time) => Ok(time),
                 None => Err(ASCOMError::VALUE_NOT_SET),
             },
-            None => return Err(ASCOMError::NOT_CONNECTED),
+            _ => {
+                error!("camera not connected");
+                return Err(ASCOMError::NOT_CONNECTED);
+            }
         }
     }
 
     async fn last_exposure_duration(&self) -> ASCOMResult<f64> {
-        match &*self.camera.read().await {
-            Some(ref camera) => match camera.last_exposure_duration_us {
+        match self.connected().await {
+            Ok(true) => match *self.last_exposure_duration_us.read().await {
                 Some(duration) => Ok(duration),
                 None => Err(ASCOMError::VALUE_NOT_SET),
             },
-            None => return Err(ASCOMError::NOT_CONNECTED),
+            _ => {
+                error!("camera not connected");
+                return Err(ASCOMError::NOT_CONNECTED);
+            }
         }
     }
 
@@ -395,32 +387,41 @@ impl Camera for QhyccdAlpaca {
     }
 
     async fn camera_xsize(&self) -> ASCOMResult<i32> {
-        match &*self.camera.read().await {
-            Some(ref camera) => camera
-                .roi
-                .map(|roi| roi.width as i32)
-                .ok_or(ASCOMError::VALUE_NOT_SET),
-            None => return Err(ASCOMError::NOT_CONNECTED),
+        match self.connected().await {
+            Ok(true) => match *self.roi.read().await {
+                Some(roi) => Ok(roi.width as i32),
+                None => Err(ASCOMError::VALUE_NOT_SET),
+            },
+            _ => {
+                error!("camera not connected");
+                return Err(ASCOMError::NOT_CONNECTED);
+            }
         }
     }
 
     async fn camera_ysize(&self) -> ASCOMResult<i32> {
-        match &*self.camera.read().await {
-            Some(ref camera) => camera
-                .roi
-                .map(|roi| roi.height as i32)
-                .ok_or(ASCOMError::VALUE_NOT_SET),
-            None => return Err(ASCOMError::NOT_CONNECTED),
+        match self.connected().await {
+            Ok(true) => match *self.roi.read().await {
+                Some(roi) => Ok(roi.height as i32),
+                None => Err(ASCOMError::VALUE_NOT_SET),
+            },
+            _ => {
+                error!("camera not connected");
+                return Err(ASCOMError::NOT_CONNECTED);
+            }
         }
     }
 
     async fn start_x(&self) -> ASCOMResult<i32> {
-        match &*self.camera.read().await {
-            Some(ref camera) => camera
-                .roi
-                .map(|roi| roi.start_x as i32)
-                .ok_or(ASCOMError::VALUE_NOT_SET),
-            None => return Err(ASCOMError::NOT_CONNECTED),
+        match self.connected().await {
+            Ok(true) => match *self.roi.read().await {
+                Some(roi) => Ok(roi.start_x as i32),
+                None => Err(ASCOMError::VALUE_NOT_SET),
+            },
+            _ => {
+                error!("camera not connected");
+                return Err(ASCOMError::NOT_CONNECTED);
+            }
         }
     }
 
@@ -428,9 +429,9 @@ impl Camera for QhyccdAlpaca {
         if start_x < 0 {
             return Err(ASCOMError::invalid_value("start_x must be >= 0"));
         }
-        match &mut *self.camera.write().await {
-            Some(ref mut camera) => {
-                let mut roi = match camera.roi {
+        match self.connected().await {
+            Ok(true) => {
+                let mut roi = match *self.roi.write().await {
                     Some(roi) => roi,
                     None => return Err(ASCOMError::VALUE_NOT_SET),
                 };
@@ -440,9 +441,9 @@ impl Camera for QhyccdAlpaca {
                     ..roi
                 };
 
-                match libqhyccd_sys::set_roi(camera.handle, roi) {
+                match self.device.set_roi(roi) {
                     Ok(_) => {
-                        camera.roi = Some(roi);
+                        *self.roi.write().await = Some(roi);
                         Ok(())
                     }
                     Err(e) => {
@@ -451,17 +452,20 @@ impl Camera for QhyccdAlpaca {
                     }
                 }
             }
-            None => return Err(ASCOMError::NOT_CONNECTED),
+            _ => {
+                error!("camera not connected");
+                return Err(ASCOMError::NOT_CONNECTED);
+            }
         }
     }
 
     async fn start_y(&self) -> ASCOMResult<i32> {
-        match &*self.camera.read().await {
-            Some(ref camera) => camera
-                .roi
-                .map(|roi| roi.start_y as i32)
-                .ok_or(ASCOMError::VALUE_NOT_SET),
-            None => {
+        match self.connected().await {
+            Ok(true) => match *self.roi.read().await {
+                Some(roi) => Ok(roi.start_y as i32),
+                None => Err(ASCOMError::VALUE_NOT_SET),
+            },
+            _ => {
                 error!("camera not connected");
                 return Err(ASCOMError::NOT_CONNECTED);
             }
@@ -472,9 +476,9 @@ impl Camera for QhyccdAlpaca {
         if start_y < 0 {
             return Err(ASCOMError::invalid_value("start_y must be >= 0"));
         }
-        match &mut *self.camera.write().await {
-            Some(ref mut camera) => {
-                let mut roi = match camera.roi {
+        match self.connected().await {
+            Ok(true) => {
+                let mut roi = match *self.roi.write().await {
                     Some(roi) => roi,
                     None => return Err(ASCOMError::VALUE_NOT_SET),
                 };
@@ -484,9 +488,9 @@ impl Camera for QhyccdAlpaca {
                     ..roi
                 };
 
-                match libqhyccd_sys::set_roi(camera.handle, roi) {
+                match self.device.set_roi(roi) {
                     Ok(_) => {
-                        camera.roi = Some(roi);
+                        *self.roi.write().await = Some(roi);
                         Ok(())
                     }
                     Err(e) => {
@@ -495,17 +499,20 @@ impl Camera for QhyccdAlpaca {
                     }
                 }
             }
-            None => return Err(ASCOMError::NOT_CONNECTED),
+            _ => {
+                error!("camera not connected");
+                return Err(ASCOMError::NOT_CONNECTED);
+            }
         }
     }
 
     async fn num_x(&self) -> ASCOMResult<i32> {
-        match &*self.camera.read().await {
-            Some(ref camera) => camera
-                .roi
-                .map(|roi| roi.width as i32)
-                .ok_or(ASCOMError::VALUE_NOT_SET),
-            None => {
+        match self.connected().await {
+            Ok(true) => match *self.roi.read().await {
+                Some(roi) => Ok(roi.width as i32),
+                None => Err(ASCOMError::VALUE_NOT_SET),
+            },
+            _ => {
                 error!("camera not connected");
                 return Err(ASCOMError::NOT_CONNECTED);
             }
@@ -516,9 +523,9 @@ impl Camera for QhyccdAlpaca {
         if num_x < 0 {
             return Err(ASCOMError::invalid_value("num_x must be >= 0"));
         }
-        match &mut *self.camera.write().await {
-            Some(ref mut camera) => {
-                let mut roi = match camera.roi {
+        match self.connected().await {
+            Ok(true) => {
+                let mut roi = match *self.roi.write().await {
                     Some(roi) => roi,
                     None => return Err(ASCOMError::VALUE_NOT_SET),
                 };
@@ -528,9 +535,9 @@ impl Camera for QhyccdAlpaca {
                     ..roi
                 };
 
-                match libqhyccd_sys::set_roi(camera.handle, roi) {
+                match self.device.set_roi(roi) {
                     Ok(_) => {
-                        camera.roi = Some(roi);
+                        *self.roi.write().await = Some(roi);
                         Ok(())
                     }
                     Err(e) => {
@@ -539,17 +546,20 @@ impl Camera for QhyccdAlpaca {
                     }
                 }
             }
-            None => return Err(ASCOMError::NOT_CONNECTED),
+            _ => {
+                error!("camera not connected");
+                return Err(ASCOMError::NOT_CONNECTED);
+            }
         }
     }
 
     async fn num_y(&self) -> ASCOMResult<i32> {
-        match &*self.camera.read().await {
-            Some(ref camera) => camera
-                .roi
-                .map(|roi| roi.height as i32)
-                .ok_or(ASCOMError::VALUE_NOT_SET),
-            None => {
+        match self.connected().await {
+            Ok(true) => match *self.roi.read().await {
+                Some(roi) => Ok(roi.height as i32),
+                None => Err(ASCOMError::VALUE_NOT_SET),
+            },
+            _ => {
                 error!("camera not connected");
                 return Err(ASCOMError::NOT_CONNECTED);
             }
@@ -560,9 +570,9 @@ impl Camera for QhyccdAlpaca {
         if num_y < 0 {
             return Err(ASCOMError::invalid_value("num_y must be >= 0"));
         }
-        match &mut *self.camera.write().await {
-            Some(ref mut camera) => {
-                let mut roi = match camera.roi {
+        match self.connected().await {
+            Ok(true) => {
+                let mut roi = match *self.roi.write().await {
                     Some(roi) => roi,
                     None => return Err(ASCOMError::VALUE_NOT_SET),
                 };
@@ -572,9 +582,9 @@ impl Camera for QhyccdAlpaca {
                     ..roi
                 };
 
-                match libqhyccd_sys::set_roi(camera.handle, roi) {
+                match self.device.set_roi(roi) {
                     Ok(_) => {
-                        camera.roi = Some(roi);
+                        *self.roi.write().await = Some(roi);
                         Ok(())
                     }
                     Err(e) => {
@@ -583,18 +593,18 @@ impl Camera for QhyccdAlpaca {
                     }
                 }
             }
-            None => return Err(ASCOMError::NOT_CONNECTED),
+            _ => return Err(ASCOMError::NOT_CONNECTED),
         }
     }
 
     async fn percent_completed(&self) -> ASCOMResult<i32> {
-        match &*self.camera.read().await {
-            Some(ref camera) => match camera.exposing {
+        match self.connected().await {
+            Ok(true) => match *self.exposing.read().await {
                 ExposingState::Idle => Ok(100),
                 ExposingState::Exposing {
                     expected_duration_us,
                     ..
-                } => match libqhyccd_sys::get_remaining_exposure_us(camera.handle) {
+                } => match self.device.get_remaining_exposure_us() {
                     Ok(remaining) => Ok(remaining as i32 / expected_duration_us as i32),
                     Err(e) => {
                         error!(?e, "get_remaining_exposure_us failed");
@@ -602,64 +612,72 @@ impl Camera for QhyccdAlpaca {
                     }
                 },
             },
-            None => return Err(ASCOMError::NOT_CONNECTED),
+            _ => return Err(ASCOMError::NOT_CONNECTED),
         }
     }
 
     async fn readout_mode(&self) -> ASCOMResult<i32> {
-        match &*self.camera.read().await {
-            Some(ref camera) => match libqhyccd_sys::get_readout_mode(camera.handle) {
+        match self.connected().await {
+            Ok(true) => match self.device.get_readout_mode() {
                 Ok(readout_mode) => Ok(readout_mode as i32),
                 Err(e) => {
                     error!(?e, "get_readout_mode failed");
                     Err(ASCOMError::UNSPECIFIED)
                 }
             },
-            None => return Err(ASCOMError::NOT_CONNECTED),
+            _ => return Err(ASCOMError::NOT_CONNECTED),
         }
     }
 
     async fn set_readout_mode(&self, readout_mode: i32) -> ASCOMResult {
         let readout_mode = readout_mode as u32;
-        match &mut *self.camera.write().await {
-            Some(ref mut camera) => {
-                match libqhyccd_sys::set_readout_mode(camera.handle, readout_mode) {
-                    Ok(_) => Ok(()),
-                    Err(e) => {
-                        error!(?e, "set_readout_mode failed");
-                        Err(ASCOMError::VALUE_NOT_SET)
-                    }
+        match self.connected().await {
+            Ok(true) => match self.device.set_readout_mode(readout_mode) {
+                Ok(_) => Ok(()),
+                Err(e) => {
+                    error!(?e, "set_readout_mode failed");
+                    Err(ASCOMError::VALUE_NOT_SET)
                 }
-            }
-            None => return Err(ASCOMError::NOT_CONNECTED),
+            },
+            _ => return Err(ASCOMError::NOT_CONNECTED),
         }
     }
 
     async fn readout_modes(&self) -> ASCOMResult<Vec<String>> {
-        match &*self.camera.read().await {
-            Some(ref camera) => match camera.valid_readout_modes {
-                Some(ref readout_modes) => {
-                    Ok(readout_modes.iter().map(|m| m.name.clone()).collect())
+        match self.connected().await {
+            Ok(true) => match self.device.get_number_of_readout_modes() {
+                Ok(num) => {
+                    let mut readout_modes = Vec::with_capacity(num as usize);
+                    for i in 0..num {
+                        match self.device.get_readout_mode_name(i) {
+                            Ok(readout_mode) => readout_modes.push(readout_mode),
+                            Err(e) => {
+                                error!(?e, "get_readout_mode failed");
+                                return Err(ASCOMError::UNSPECIFIED);
+                            }
+                        }
+                    }
+                    Ok(readout_modes)
                 }
-                None => Err(ASCOMError::NOT_CONNECTED),
+                Err(e) => {
+                    error!(?e, "get_number_of_readout_modes failed");
+                    Err(ASCOMError::UNSPECIFIED)
+                }
             },
-            None => {
-                error!("camera not connected");
-                return Err(ASCOMError::NOT_CONNECTED);
-            }
+            _ => return Err(ASCOMError::NOT_CONNECTED),
         }
     }
 
     async fn sensor_type(&self) -> ASCOMResult<SensorType> {
-        match &*self.camera.read().await {
-            Some(ref camera) => match libqhyccd_sys::is_feature_supported(
-                camera.handle,
-                libqhyccd_sys::CameraFeature::CamIsColor,
-            ) {
+        match self.connected().await {
+            Ok(true) => match self
+                .device
+                .is_control_available(qhyccd_rs::Control::CamIsColor)
+            {
                 Ok(_) => Ok(SensorType::Color),
                 Err(_) => Ok(SensorType::Monochrome),
             },
-            None => {
+            _ => {
                 error!("camera not connected");
                 return Err(ASCOMError::NOT_CONNECTED);
             }
@@ -673,28 +691,27 @@ impl Camera for QhyccdAlpaca {
         if !light {
             return Err(ASCOMError::invalid_operation("dark frames not supported"));
         }
-        match &mut *self.camera.write().await {
-            Some(ref mut camera) => {
+        match self.connected().await {
+            Ok(true) => {
                 let exposure_us = duration * 1_000_000.0;
 
                 let (stop_tx, stop_rx) = oneshot::channel::<StopExposure>();
                 let (done_tx, done_rx) = watch::channel(false);
 
-                camera.last_exposure_start_time = Some(SystemTime::now());
-                camera.last_exposure_duration_us = Some(exposure_us);
+                *self.last_exposure_start_time.write().await = Some(SystemTime::now());
+                *self.last_exposure_duration_us.write().await = Some(exposure_us);
 
-                camera.exposing = ExposingState::Exposing {
+                *self.exposing.write().await = ExposingState::Exposing {
                     expected_duration_us: exposure_us,
                     start: SystemTime::now(),
                     stop_tx: Some(stop_tx),
                     done_rx,
                 };
 
-                match libqhyccd_sys::set_parameter(
-                    camera.handle,
-                    libqhyccd_sys::CameraFeature::ControlExposure,
-                    exposure_us,
-                ) {
+                match self
+                    .device
+                    .set_parameter(qhyccd_rs::Control::Exposure, exposure_us)
+                {
                     Ok(_) => {}
                     Err(e) => {
                         error!(?e, "failed to set exposure time: {:?}", e);
@@ -702,16 +719,16 @@ impl Camera for QhyccdAlpaca {
                     }
                 }
 
-                let handle = camera.handle;
+                let device = self.device.clone();
                 let image = task::spawn_blocking(move || {
-                    match libqhyccd_sys::start_single_frame_exposure(handle) {
+                    match device.start_single_frame_exposure() {
                         Ok(_) => {}
                         Err(e) => {
                             error!(?e, "failed to stop exposure: {:?}", e);
                             return Err(ASCOMError::UNSPECIFIED);
                         }
                     }
-                    let buffer_size = match libqhyccd_sys::get_image_size(handle) {
+                    let buffer_size = match device.get_image_size() {
                         Ok(size) => size,
                         Err(e) => {
                             error!(?e, "get_image_size failed");
@@ -719,7 +736,7 @@ impl Camera for QhyccdAlpaca {
                         }
                     };
 
-                    let image = match libqhyccd_sys::get_single_frame(handle, buffer_size) {
+                    let image = match device.get_single_frame(buffer_size) {
                         Ok(image) => image,
                         Err(e) => {
                             error!(?e, "get_single_frame failed");
@@ -734,7 +751,7 @@ impl Camera for QhyccdAlpaca {
                         match image {
                             Ok(image_result) => {
                                 match image_result {
-                                    Ok(image) => {camera.last_image = Some(QhyccdAlpaca::transform_image(image));
+                                    Ok(image) => { *self.last_image.write().await = Some(QhyccdCamera::transform_image(image));
                                     let _ = done_tx.send(true);
                                     },
                                     Err(e) => {
@@ -750,7 +767,7 @@ impl Camera for QhyccdAlpaca {
                         }
                     },
                     _ = stop => {
-                        match libqhyccd_sys::abort_exposure_and_readout(camera.handle) {
+                        match self.device.abort_exposure_and_readout() {
                             Ok(_) => {},
                             Err(e) => {
                                 error!(?e, "failed to stop exposure: {:?}", e);
@@ -762,7 +779,7 @@ impl Camera for QhyccdAlpaca {
                 tokio::spawn(async move {});
                 Ok(())
             }
-            None => {
+            _ => {
                 error!("camera not connected");
                 return Err(ASCOMError::NOT_CONNECTED);
             }
@@ -779,15 +796,15 @@ impl Camera for QhyccdAlpaca {
     }
 
     async fn stop_exposure(&self) -> ASCOMResult {
-        match &mut *self.camera.write().await {
-            Some(ref mut camera) => match libqhyccd_sys::stop_exposure(camera.handle) {
+        match self.connected().await {
+            Ok(true) => match self.device.stop_exposure() {
                 Ok(_) => Ok(()),
                 Err(e) => {
                     error!(?e, "stop_exposure failed");
                     Err(ASCOMError::NOT_CONNECTED)
                 }
             },
-            None => {
+            _ => {
                 error!("camera not connected");
                 return Err(ASCOMError::NOT_CONNECTED);
             }
@@ -795,17 +812,15 @@ impl Camera for QhyccdAlpaca {
     }
 
     async fn abort_exposure(&self) -> ASCOMResult {
-        match &mut *self.camera.write().await {
-            Some(ref mut camera) => {
-                match libqhyccd_sys::abort_exposure_and_readout(camera.handle) {
-                    Ok(_) => Ok(()),
-                    Err(e) => {
-                        error!(?e, "stop_exposure failed");
-                        Err(ASCOMError::NOT_CONNECTED)
-                    }
+        match self.connected().await {
+            Ok(true) => match self.device.abort_exposure_and_readout() {
+                Ok(_) => Ok(()),
+                Err(e) => {
+                    error!(?e, "stop_exposure failed");
+                    Err(ASCOMError::NOT_CONNECTED)
                 }
-            }
-            None => {
+            },
+            _ => {
                 error!("camera not connected");
                 return Err(ASCOMError::NOT_CONNECTED);
             }
@@ -824,39 +839,32 @@ async fn main() -> eyre::Result<std::convert::Infallible> {
 
     server.listen_addr.set_port(8000);
 
-    let sdk_version = libqhyccd_sys::get_sdk_version().expect("get_sdk_version failed");
+    let sdk = Sdk::new().expect("SDK::new failed");
+    let sdk_version = sdk.version().expect("get_sdk_version failed");
     trace!(sdk_version = ?sdk_version);
+    trace!(cameras = ?sdk.cameras().count());
+    trace!(filter_wheels = ?sdk.filter_wheels().count());
 
-    libqhyccd_sys::init_sdk().expect("init_sdk failed");
-
-    let number_of_cameras = libqhyccd_sys::scan_qhyccd().expect("scan_qhyccd failed");
-    trace!(number_of_cameras = ?number_of_cameras);
-
-    for i in 0..number_of_cameras {
-        let unique_id = match libqhyccd_sys::get_camera_id(i) {
-            Ok(id) => id,
-            Err(e) => {
-                error!(?e, "get_camera_id failed");
-                continue;
-            }
-        };
-
-        let camera = QhyccdAlpaca {
-            unique_id: unique_id.clone(),
-            name: format!("QHYCCD-{}", unique_id),
+    sdk.cameras().for_each(|c| {
+        let camera = QhyccdCamera {
+            unique_id: c.id().to_owned(),
+            name: format!("QHYCCD-{}", c.id()),
             description: "QHYCCD camera".to_owned(),
-            camera: Arc::new(RwLock::new(None)),
+            device: c.clone(),
+            binning: RwLock::new(BinningMode { symmetric_value: 1 }),
+            valid_bins: RwLock::new(None),
+            roi: RwLock::new(None),
+            last_exposure_start_time: RwLock::new(None),
+            last_exposure_duration_us: RwLock::new(None),
+            last_image: RwLock::new(None),
+            exposing: RwLock::new(ExposingState::Idle),
         };
         tracing::debug!(?camera, "Registering webcam");
         server.devices.register(camera);
-    }
+    });
 
     server.start().await
 }
 
 #[cfg(test)]
-mod tests {
-
-    #[test]
-    fn it_works() {}
-}
+mod tests;
