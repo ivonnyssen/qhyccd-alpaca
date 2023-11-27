@@ -34,6 +34,14 @@ async fn qhyccd_camera() {
     assert!(camera.last_exposure_duration_us.read().await.is_none());
     assert!(camera.last_image.read().await.is_none());
     assert_eq!(*camera.exposing.read().await, ExposingState::Idle);
+    assert_eq!(camera.static_name(), "QHYCCD-test_camera");
+    assert_eq!(camera.unique_id(), "test_camera");
+    assert_eq!(camera.description().await.unwrap(), "QHYCCD camera");
+    assert_eq!(camera.driver_info().await.unwrap(), "qhyccd_alpaca driver");
+    assert_eq!(
+        camera.driver_version().await.unwrap(),
+        env!("CARGO_PKG_VERSION")
+    );
 }
 
 fn new_camera(device: MockCamera) -> QhyccdCamera {
@@ -71,16 +79,12 @@ async fn max_bin_x_success() {
             Control::CamBin2x2mode => Ok(0_u32),
             Control::CamBin3x3mode => Ok(0_u32),
             Control::CamBin4x4mode => Ok(0_u32),
-            Control::CamBin6x6mode => Err(eyre!(qhyccd_rs::QHYError::IsControlAvailableError {
-                feature: Control::CamBin6x6mode
-            })),
-            Control::CamBin8x8mode => Err(eyre!(qhyccd_rs::QHYError::IsControlAvailableError {
-                feature: Control::CamBin8x8mode
-            })),
+            Control::CamBin6x6mode => Ok(0_u32),
+            Control::CamBin8x8mode => Ok(0_u32),
             _ => panic!("Unexpected control"),
         });
     let camera = new_camera(mock);
-    assert_eq!(camera.max_bin_x().await.unwrap(), 4);
+    assert_eq!(camera.max_bin_x().await.unwrap(), 8);
 }
 
 #[tokio::test]
@@ -112,4 +116,19 @@ async fn max_bin_x_fail_not_connected() {
     mock.expect_is_open().times(1).returning(|| Ok(false));
     let camera = new_camera(mock);
     assert!(camera.max_bin_x().await.is_err());
+}
+
+#[tokio::test]
+async fn connected_fail() {
+    let mut mock = MockCamera::new();
+    mock.expect_is_open()
+        .times(1)
+        .returning(|| Err(eyre!("Could not acquire read lock on camera handle")));
+    let camera = new_camera(mock);
+    let res = camera.connected().await;
+    assert!(res.is_err());
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::NOT_CONNECTED.to_string()
+    );
 }
