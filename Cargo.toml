@@ -4,7 +4,7 @@ version = "0.1.0"
 authors = ["Igor von Nyssen<igor@vonnyssen.com>"]
 license = "MIT OR Apache-2.0"
 readme = "README.md"
-keywords = ["qhyccd", "astronomy", "camera", "ASCOM","alpaca"]
+keywords = ["qhyccd", "astronomy", "camera", "ASCOM", "alpaca"]
 repository = "https://github.com/ivonnyssen/qhyccd-alpaca"
 documentation = "https://docs.rs/qhyccd-alpaca"
 description = """
@@ -17,19 +17,26 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-ascom-alpaca = {version ="1.0.0-beta.1",features = ["server", "camera", "filterwheel"]}
+ascom-alpaca = { version = "1.0.0-beta.1", features = [
+  "server",
+  "camera",
+  "filterwheel",
+] }
 async-trait = "0.1.74"
 custom_debug = "0.5.1"
 eyre = "0.6.8"
-qhyccd-rs = { version = "0.1.2",path = "../qhyccd-rs" }
+qhyccd-rs = { version = "0.1.2" }
 ndarray = "0.15.6"
 parking_lot = "0.12.1"
 strum = "0.25.0"
-tokio = {version="1.33.0", features = ["rt-multi-thread", "macros"]}
+tokio = { version = "1.33.0", features = ["rt-multi-thread", "macros"] }
 tracing = "0.1.40"
 tracing-subscriber = "0.3.17"
 cfg-if = "1.0.0"
 educe = "0.4.23"
 
+# to make ascom-alpaca happy
+mediatype = "0.19.16"
+
 [dev-dependencies]
-mockall = {version="0.11.4", features = []}
+mockall = { version = "0.11.4", features = [] }
