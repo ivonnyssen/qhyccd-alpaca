@@ -524,3 +524,36 @@ async fn set_bin_y_fail_invalid_bin() {
         ASCOMError::invalid_value("bin_x must be >= 1").to_string()
     );
 }
+
+#[tokio::test]
+async fn unimplmented_functions() {
+    //given
+    let mock = MockCamera::new();
+    let camera = new_camera(mock);
+    //when
+    assert_eq!(
+        camera.electrons_per_adu().await.err().unwrap().to_string(),
+        ASCOMError::NOT_IMPLEMENTED.to_string()
+    );
+    assert_eq!(
+        camera.exposure_max().await.err().unwrap().to_string(),
+        ASCOMError::NOT_IMPLEMENTED.to_string()
+    );
+    assert_eq!(
+        camera.exposure_min().await.err().unwrap().to_string(),
+        ASCOMError::NOT_IMPLEMENTED.to_string()
+    );
+    assert_eq!(
+        camera
+            .exposure_resolution()
+            .await
+            .err()
+            .unwrap()
+            .to_string(),
+        ASCOMError::NOT_IMPLEMENTED.to_string()
+    );
+    assert_eq!(
+        camera.full_well_capacity().await.err().unwrap().to_string(),
+        ASCOMError::NOT_IMPLEMENTED.to_string()
+    );
+}
