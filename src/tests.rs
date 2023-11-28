@@ -6,11 +6,13 @@ use eyre::eyre;
 
 #[tokio::test]
 async fn qhyccd_camera() {
+    //given
     let mut mock = MockCamera::new();
     mock.expect_id()
         .times(2)
         .return_const("test_camera".to_owned());
     mock.expect_clone().returning(MockCamera::new);
+    //when
     let camera = QhyccdCamera {
         unique_id: mock.id().to_owned(),
         name: format!("QHYCCD-{}", mock.id()),
@@ -24,6 +26,7 @@ async fn qhyccd_camera() {
         last_image: RwLock::new(None),
         exposing: RwLock::new(ExposingState::Idle),
     };
+    //then
     assert_eq!(camera.unique_id, "test_camera");
     assert_eq!(camera.name, "QHYCCD-test_camera");
     assert_eq!(camera.description, "QHYCCD camera");
@@ -62,6 +65,7 @@ fn new_camera(device: MockCamera) -> QhyccdCamera {
 
 #[tokio::test]
 async fn max_bin_x_success() {
+    //given
     let mut mock = MockCamera::new();
     mock.expect_is_open().times(1).returning(|| Ok(true));
     mock.expect_is_control_available()
@@ -83,12 +87,15 @@ async fn max_bin_x_success() {
             Control::CamBin8x8mode => Ok(0_u32),
             _ => panic!("Unexpected control"),
         });
+    //when
     let camera = new_camera(mock);
+    //then
     assert_eq!(camera.max_bin_x().await.unwrap(), 8);
 }
 
 #[tokio::test]
 async fn max_bin_x_fail_no_modes() {
+    //given
     let mut mock = MockCamera::new();
     mock.expect_is_open().times(1).returning(|| Ok(true));
     mock.expect_is_control_available()
@@ -106,29 +113,48 @@ async fn max_bin_x_fail_no_modes() {
                 feature: control
             }))
         });
+    //when
     let camera = new_camera(mock);
+    //then
     assert!(camera.max_bin_x().await.is_err());
 }
 
 #[tokio::test]
 async fn max_bin_x_fail_not_connected() {
+    //given
     let mut mock = MockCamera::new();
     mock.expect_is_open().times(1).returning(|| Ok(false));
+    //when
     let camera = new_camera(mock);
+    //then
     assert!(camera.max_bin_x().await.is_err());
 }
 
 #[tokio::test]
 async fn connected_fail() {
+    //given
     let mut mock = MockCamera::new();
     mock.expect_is_open()
         .times(1)
         .returning(|| Err(eyre!("Could not acquire read lock on camera handle")));
     let camera = new_camera(mock);
+    //when
     let res = camera.connected().await;
+    //then
     assert!(res.is_err());
     assert_eq!(
         res.err().unwrap().to_string(),
         ASCOMError::NOT_CONNECTED.to_string()
     );
+}
+
+#[tokio::test]
+async fn set_connected_success() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_is_open().times(1).returning(|| Ok(true));
+    let camera = new_camera(mock);
+    //when
+    let res = camera.set_connected(true).await;
+    assert!(res.is_ok());
 }
