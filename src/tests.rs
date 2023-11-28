@@ -390,3 +390,137 @@ async fn bin_y_fail_not_connected() {
         ASCOMError::NOT_CONNECTED.to_string()
     );
 }
+
+#[tokio::test]
+async fn set_bin_x_success() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_is_open().times(1).returning(|| Ok(true));
+    mock.expect_set_bin_mode()
+        .times(1)
+        .withf(|bin_x: &u32, bin_y: &u32| *bin_x == 1 && *bin_y == 1)
+        .returning(|_, _| Ok(()));
+    let camera = new_camera(mock);
+    //when
+    let res = camera.set_bin_x(1).await;
+    //then
+    assert!(res.is_ok());
+}
+
+#[tokio::test]
+async fn set_bin_y_success() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_is_open().times(1).returning(|| Ok(true));
+    mock.expect_set_bin_mode()
+        .times(1)
+        .withf(|bin_x: &u32, bin_y: &u32| *bin_x == 1 && *bin_y == 1)
+        .returning(|_, _| Ok(()));
+    let camera = new_camera(mock);
+    //when
+    let res = camera.set_bin_y(1).await;
+    //then
+    assert!(res.is_ok());
+}
+
+#[tokio::test]
+async fn set_bin_x_fail_not_connected() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_is_open().times(1).returning(|| Ok(false));
+    let camera = new_camera(mock);
+    //when
+    let res = camera.set_bin_x(1).await;
+    //then
+    assert!(res.is_err());
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::NOT_CONNECTED.to_string()
+    );
+}
+
+#[tokio::test]
+async fn set_bin_y_fail_not_connected() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_is_open().times(1).returning(|| Ok(false));
+    let camera = new_camera(mock);
+    //when
+    let res = camera.set_bin_y(1).await;
+    //then
+    assert!(res.is_err());
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::NOT_CONNECTED.to_string()
+    );
+}
+
+#[tokio::test]
+async fn set_bin_x_fail_set_bin_mode() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_is_open().times(1).returning(|| Ok(true));
+    mock.expect_set_bin_mode()
+        .times(1)
+        .withf(|bin_x: &u32, bin_y: &u32| *bin_x == 2 && *bin_y == 2)
+        .returning(|_, _| Err(eyre!("Could not set bin mode")));
+    let camera = new_camera(mock);
+    //when
+    let res = camera.set_bin_x(2).await;
+    //then
+    assert!(res.is_err());
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::VALUE_NOT_SET.to_string()
+    );
+}
+
+#[tokio::test]
+async fn set_bin_y_fail_set_bin_mode() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_is_open().times(1).returning(|| Ok(true));
+    mock.expect_set_bin_mode()
+        .times(1)
+        .withf(|bin_x: &u32, bin_y: &u32| *bin_x == 2 && *bin_y == 2)
+        .returning(|_, _| Err(eyre!("Could not set bin mode")));
+    let camera = new_camera(mock);
+    //when
+    let res = camera.set_bin_y(2).await;
+    //then
+    assert!(res.is_err());
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::VALUE_NOT_SET.to_string()
+    );
+}
+
+#[tokio::test]
+async fn set_bin_x_fail_invalid_bin() {
+    //given
+    let mock = MockCamera::new();
+    let camera = new_camera(mock);
+    //when
+    let res = camera.set_bin_x(0).await;
+    //then
+    assert!(res.is_err());
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::invalid_value("bin_x must be >= 1").to_string()
+    );
+}
+
+#[tokio::test]
+async fn set_bin_y_fail_invalid_bin() {
+    //given
+    let mock = MockCamera::new();
+    let camera = new_camera(mock);
+    //when
+    let res = camera.set_bin_y(0).await;
+    //then
+    assert!(res.is_err());
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::invalid_value("bin_x must be >= 1").to_string()
+    );
+}
