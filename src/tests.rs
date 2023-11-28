@@ -67,9 +67,9 @@ fn new_camera(device: MockCamera) -> QhyccdCamera {
 async fn max_bin_x_success() {
     //given
     let mut mock = MockCamera::new();
-    mock.expect_is_open().times(1).returning(|| Ok(true));
+    mock.expect_is_open().times(2).returning(|| Ok(true));
     mock.expect_is_control_available()
-        .times(6)
+        .times(12)
         .withf(|control| {
             control == &Control::CamBin1x1mode
                 || control == &Control::CamBin2x2mode
@@ -91,15 +91,16 @@ async fn max_bin_x_success() {
     let camera = new_camera(mock);
     //then
     assert_eq!(camera.max_bin_x().await.unwrap(), 8);
+    assert_eq!(camera.max_bin_y().await.unwrap(), 8);
 }
 
 #[tokio::test]
 async fn max_bin_x_fail_no_modes() {
     //given
     let mut mock = MockCamera::new();
-    mock.expect_is_open().times(1).returning(|| Ok(true));
+    mock.expect_is_open().times(2).returning(|| Ok(true));
     mock.expect_is_control_available()
-        .times(6)
+        .times(12)
         .withf(|control| {
             control == &Control::CamBin1x1mode
                 || control == &Control::CamBin2x2mode
@@ -117,17 +118,19 @@ async fn max_bin_x_fail_no_modes() {
     let camera = new_camera(mock);
     //then
     assert!(camera.max_bin_x().await.is_err());
+    assert!(camera.max_bin_y().await.is_err());
 }
 
 #[tokio::test]
 async fn max_bin_x_fail_not_connected() {
     //given
     let mut mock = MockCamera::new();
-    mock.expect_is_open().times(1).returning(|| Ok(false));
+    mock.expect_is_open().times(2).returning(|| Ok(false));
     //when
     let camera = new_camera(mock);
     //then
     assert!(camera.max_bin_x().await.is_err());
+    assert!(camera.max_bin_y().await.is_err());
 }
 
 #[tokio::test]
