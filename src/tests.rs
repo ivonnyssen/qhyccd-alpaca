@@ -149,12 +149,74 @@ async fn connected_fail() {
 }
 
 #[tokio::test]
-async fn set_connected_success() {
+async fn set_connected_already_connected() {
     //given
     let mut mock = MockCamera::new();
     mock.expect_is_open().times(1).returning(|| Ok(true));
     let camera = new_camera(mock);
     //when
     let res = camera.set_connected(true).await;
+    assert!(res.is_ok());
+}
+
+#[tokio::test]
+async fn set_connected_already_disconnected() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_is_open().times(1).returning(|| Ok(false));
+    let camera = new_camera(mock);
+    //when
+    let res = camera.set_connected(false).await;
+    assert!(res.is_ok());
+}
+
+#[tokio::test]
+async fn set_connected_true_success() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_is_open().times(1).returning(|| Ok(false));
+    mock.expect_open().times(1).returning(|| Ok(()));
+    mock.expect_get_effective_area().times(1).returning(|| {
+        Ok(CCDChipArea {
+            start_x: 0,
+            start_y: 0,
+            width: 100,
+            height: 100,
+        })
+    });
+    mock.expect_is_control_available()
+        .times(6)
+        .withf(|control| {
+            control == &Control::CamBin1x1mode
+                || control == &Control::CamBin2x2mode
+                || control == &Control::CamBin3x3mode
+                || control == &Control::CamBin4x4mode
+                || control == &Control::CamBin6x6mode
+                || control == &Control::CamBin8x8mode
+        })
+        .returning(|control| match control {
+            Control::CamBin1x1mode => Ok(0_u32),
+            Control::CamBin2x2mode => Ok(0_u32),
+            Control::CamBin3x3mode => Ok(0_u32),
+            Control::CamBin4x4mode => Ok(0_u32),
+            Control::CamBin6x6mode => Ok(0_u32),
+            Control::CamBin8x8mode => Ok(0_u32),
+            _ => panic!("Unexpected control"),
+        });
+    let camera = new_camera(mock);
+    //when
+    let res = camera.set_connected(true).await;
+    assert!(res.is_ok());
+}
+
+#[tokio::test]
+async fn set_connected_false_success() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_is_open().times(1).returning(|| Ok(true));
+    mock.expect_close().times(1).returning(|| Ok(()));
+    let camera = new_camera(mock);
+    //when
+    let res = camera.set_connected(false).await;
     assert!(res.is_ok());
 }
