@@ -282,3 +282,111 @@ async fn offset_y_success() {
     assert!(res.is_ok());
     assert_eq!(res.unwrap(), 0_i32);
 }
+
+#[tokio::test]
+async fn sensor_name_success() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_is_open().times(1).returning(|| Ok(true));
+    mock.expect_get_model()
+        .once()
+        .returning(|| Ok("test_model".to_owned()));
+    let camera = new_camera(mock);
+    //when
+    let res = camera.sensor_name().await;
+    assert!(res.is_ok());
+    assert_eq!(res.unwrap(), "test_model");
+}
+
+#[tokio::test]
+async fn sensor_name_fail_get_model() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_is_open().times(1).returning(|| Ok(true));
+    mock.expect_get_model()
+        .once()
+        .returning(|| Err(eyre!("Could not get model")));
+    let camera = new_camera(mock);
+    //when
+    let res = camera.sensor_name().await;
+    //then
+    assert!(res.is_err());
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::UNSPECIFIED.to_string()
+    );
+}
+
+#[tokio::test]
+async fn sensor_name_fail_not_connected() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_is_open().times(1).returning(|| Ok(false));
+    let camera = new_camera(mock);
+    //when
+    let res = camera.sensor_name().await;
+    //then
+    assert!(res.is_err());
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::NOT_CONNECTED.to_string()
+    );
+}
+
+#[tokio::test]
+async fn bin_x_success() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_is_open().times(1).returning(|| Ok(true));
+    let camera = new_camera(mock);
+    //when
+    let res = camera.bin_x().await;
+    //then
+    assert!(res.is_ok());
+    assert_eq!(res.unwrap(), 1_i32);
+}
+
+#[tokio::test]
+async fn bin_y_success() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_is_open().times(1).returning(|| Ok(true));
+    let camera = new_camera(mock);
+    //when
+    let res = camera.bin_y().await;
+    //then
+    assert!(res.is_ok());
+    assert_eq!(res.unwrap(), 1_i32);
+}
+
+#[tokio::test]
+async fn bin_x_fail_not_connected() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_is_open().times(1).returning(|| Ok(false));
+    let camera = new_camera(mock);
+    //when
+    let res = camera.bin_x().await;
+    //then
+    assert!(res.is_err());
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::NOT_CONNECTED.to_string()
+    );
+}
+
+#[tokio::test]
+async fn bin_y_fail_not_connected() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_is_open().times(1).returning(|| Ok(false));
+    let camera = new_camera(mock);
+    //when
+    let res = camera.bin_y().await;
+    //then
+    assert!(res.is_err());
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::NOT_CONNECTED.to_string()
+    );
+}
