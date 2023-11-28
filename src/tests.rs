@@ -220,3 +220,65 @@ async fn set_connected_false_success() {
     let res = camera.set_connected(false).await;
     assert!(res.is_ok());
 }
+
+#[tokio::test]
+async fn set_connected_fail_open() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_is_open().times(1).returning(|| Ok(false));
+    mock.expect_open()
+        .times(1)
+        .returning(|| Err(eyre!("Could not open camera")));
+    let camera = new_camera(mock);
+    //when
+    let res = camera.set_connected(true).await;
+    //then
+    assert!(res.is_err());
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::NOT_CONNECTED.to_string()
+    );
+}
+
+#[tokio::test]
+async fn set_connected_fail_close() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_is_open().times(1).returning(|| Ok(true));
+    mock.expect_close()
+        .times(1)
+        .returning(|| Err(eyre!("Could not close camera")));
+    let camera = new_camera(mock);
+    //when
+    let res = camera.set_connected(false).await;
+    //then
+    assert!(res.is_err());
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::NOT_CONNECTED.to_string()
+    );
+}
+
+#[tokio::test]
+async fn offset_x_success() {
+    //given
+    let mock = MockCamera::new();
+    let camera = new_camera(mock);
+    //when
+    let res = camera.bayer_offset_x().await;
+    //then
+    assert!(res.is_ok());
+    assert_eq!(res.unwrap(), 0_i32);
+}
+
+#[tokio::test]
+async fn offset_y_success() {
+    //given
+    let mock = MockCamera::new();
+    let camera = new_camera(mock);
+    //when
+    let res = camera.bayer_offset_y().await;
+    //then
+    assert!(res.is_ok());
+    assert_eq!(res.unwrap(), 0_i32);
+}
