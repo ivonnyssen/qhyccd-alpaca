@@ -764,6 +764,38 @@ async fn image_ready_fail_not_connected() {
 }
 
 #[tokio::test]
+async fn last_exposure_start_time_fail_not_set() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_is_open().once().returning(|| Ok(true));
+    let camera = new_camera(mock);
+    //when
+    let res = camera.last_exposure_start_time().await;
+    //then
+    assert!(res.is_err());
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::VALUE_NOT_SET.to_string()
+    );
+}
+
+#[tokio::test]
+async fn last_exposure_start_time_fail_not_connected() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_is_open().once().returning(|| Ok(false));
+    let camera = new_camera(mock);
+    //when
+    let res = camera.last_exposure_start_time().await;
+    //then
+    assert!(res.is_err());
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::NOT_CONNECTED.to_string()
+    )
+}
+
+#[tokio::test]
 async fn last_exposure_duration_fail_not_set() {
     //given
     let mut mock = MockCamera::new();
