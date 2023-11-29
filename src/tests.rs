@@ -519,7 +519,7 @@ async fn set_bin_y_fail_set_bin_mode() {
     let mut mock = MockCamera::new();
     mock.expect_is_open().times(1).returning(|| Ok(true));
     mock.expect_set_bin_mode()
-        .times(1)
+        .once()
         .withf(|bin_x: &u32, bin_y: &u32| *bin_x == 2 && *bin_y == 2)
         .returning(|_, _| Err(eyre!("Could not set bin mode")));
     let camera = new_camera(mock);
@@ -593,5 +593,59 @@ async fn unimplmented_functions() {
     assert_eq!(
         camera.full_well_capacity().await.err().unwrap().to_string(),
         ASCOMError::NOT_IMPLEMENTED.to_string()
+    );
+}
+
+#[tokio::test]
+async fn has_shutter_true_success() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_is_open().once().returning(|| Ok(true));
+    mock.expect_is_control_available()
+        .once()
+        .withf(|control| *control == qhyccd_rs::Control::CamMechanicalShutter)
+        .returning(|_| Ok(0_u32));
+    let camera = new_camera(mock);
+    //when
+    let res = camera.has_shutter().await;
+    //then
+    assert!(res.is_ok());
+    assert!(res.unwrap());
+}
+
+#[tokio::test]
+async fn has_shutter_false_success() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_is_open().once().returning(|| Ok(true));
+    mock.expect_is_control_available()
+        .once()
+        .withf(|control| *control == qhyccd_rs::Control::CamMechanicalShutter)
+        .returning(|_| {
+            Err(eyre!(qhyccd_rs::QHYError::IsControlAvailableError {
+                feature: qhyccd_rs::Control::CamMechanicalShutter
+            }))
+        });
+    let camera = new_camera(mock);
+    //when
+    let res = camera.has_shutter().await;
+    //then
+    assert!(res.is_ok());
+    assert!(!res.unwrap());
+}
+
+#[tokio::test]
+async fn has_shutter_fail_not_connected() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_is_open().once().returning(|| Ok(false));
+    let camera = new_camera(mock);
+    //when
+    let res = camera.has_shutter().await;
+    //then
+    assert!(res.is_err());
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::NOT_CONNECTED.to_string()
     );
 }
