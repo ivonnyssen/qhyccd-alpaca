@@ -244,6 +244,41 @@ async fn set_connected_fail_open() {
 }
 
 #[tokio::test]
+async fn set_connected_fail_get_effective_area() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_is_open().times(1).returning(|| Ok(false));
+    mock.expect_open().once().returning(|| Ok(()));
+    mock.expect_get_effective_area()
+        .once()
+        .returning(|| Err(eyre!("could not get effective area")));
+    mock.expect_is_control_available()
+        .times(6)
+        .withf(|control| {
+            control == &Control::CamBin1x1mode
+                || control == &Control::CamBin2x2mode
+                || control == &Control::CamBin3x3mode
+                || control == &Control::CamBin4x4mode
+                || control == &Control::CamBin6x6mode
+                || control == &Control::CamBin8x8mode
+        })
+        .returning(|control| match control {
+            Control::CamBin1x1mode => Ok(0_u32),
+            Control::CamBin2x2mode => Ok(0_u32),
+            Control::CamBin3x3mode => Ok(0_u32),
+            Control::CamBin4x4mode => Ok(0_u32),
+            Control::CamBin6x6mode => Ok(0_u32),
+            Control::CamBin8x8mode => Ok(0_u32),
+            _ => panic!("Unexpected control"),
+        });
+    let camera = new_camera(mock);
+    //when
+    let res = camera.set_connected(true).await;
+    //then
+    assert!(res.is_ok());
+}
+
+#[tokio::test]
 async fn set_connected_fail_close() {
     //given
     let mut mock = MockCamera::new();
