@@ -134,6 +134,35 @@ async fn max_bin_x_fail_not_connected() {
 }
 
 #[tokio::test]
+async fn camrea_state_success() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_is_open().times(1).returning(|| Ok(true));
+    let camera = new_camera(mock);
+    //when
+    let res = camera.camera_state().await;
+    //then
+    assert!(res.is_ok());
+    assert_eq!(res.unwrap(), CameraState::Idle);
+}
+
+#[tokio::test]
+async fn camera_state_fail_not_connected() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_is_open().times(1).returning(|| Ok(false));
+    let camera = new_camera(mock);
+    //when
+    let res = camera.camera_state().await;
+    //then
+    assert!(res.is_err());
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::NOT_CONNECTED.to_string()
+    )
+}
+
+#[tokio::test]
 async fn connected_fail() {
     //given
     let mut mock = MockCamera::new();
@@ -594,6 +623,10 @@ async fn unimplmented_functions() {
         camera.full_well_capacity().await.err().unwrap().to_string(),
         ASCOMError::NOT_IMPLEMENTED.to_string()
     );
+    assert_eq!(
+        camera.max_adu().await.err().unwrap().to_string(),
+        ASCOMError::NOT_IMPLEMENTED.to_string()
+    );
 }
 
 #[tokio::test]
@@ -648,4 +681,116 @@ async fn has_shutter_fail_not_connected() {
         res.err().unwrap().to_string(),
         ASCOMError::NOT_CONNECTED.to_string()
     );
+}
+
+#[tokio::test]
+async fn image_array_empty() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_is_open().once().returning(|| Ok(true));
+    let camera = new_camera(mock);
+    //when
+    let res = camera.image_array().await;
+    //then
+    assert!(res.is_err());
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::VALUE_NOT_SET.to_string()
+    );
+}
+
+#[tokio::test]
+async fn image_array_fail_not_connected() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_is_open().once().returning(|| Ok(false));
+    let camera = new_camera(mock);
+    //when
+    let res = camera.image_array().await;
+    //then
+    assert!(res.is_err());
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::NOT_CONNECTED.to_string()
+    );
+}
+
+#[tokio::test]
+async fn image_ready_not_ready_success() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_is_open().once().returning(|| Ok(true));
+    mock.expect_get_remaining_exposure_us()
+        .once()
+        .returning(|| Ok(10000_u32));
+    let camera = new_camera(mock);
+    //when
+    let res = camera.image_ready().await;
+    //then
+    assert!(res.is_ok());
+    assert!(!res.unwrap());
+}
+
+#[tokio::test]
+async fn image_ready_ready_success() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_is_open().once().returning(|| Ok(true));
+    mock.expect_get_remaining_exposure_us()
+        .once()
+        .returning(|| Ok(0_u32));
+    let camera = new_camera(mock);
+    //when
+    let res = camera.image_ready().await;
+    //then
+    assert!(res.is_ok());
+    assert!(res.unwrap());
+}
+
+#[tokio::test]
+async fn image_ready_fail_not_connected() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_is_open().once().returning(|| Ok(false));
+    let camera = new_camera(mock);
+    //when
+    let res = camera.image_ready().await;
+    //then
+    assert!(res.is_err());
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::NOT_CONNECTED.to_string()
+    )
+}
+
+#[tokio::test]
+async fn last_exposure_duration_fail_not_set() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_is_open().once().returning(|| Ok(true));
+    let camera = new_camera(mock);
+    //when
+    let res = camera.last_exposure_duration().await;
+    //then
+    assert!(res.is_err());
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::VALUE_NOT_SET.to_string()
+    );
+}
+
+#[tokio::test]
+async fn last_exposure_duration_fail_not_connected() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_is_open().once().returning(|| Ok(false));
+    let camera = new_camera(mock);
+    //when
+    let res = camera.last_exposure_duration().await;
+    //then
+    assert!(res.is_err());
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::NOT_CONNECTED.to_string()
+    )
 }
