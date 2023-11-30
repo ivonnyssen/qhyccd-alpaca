@@ -4,6 +4,43 @@ use super::*;
 use crate::mocks::MockCamera;
 use eyre::eyre;
 
+enum MockCameraType {
+    IsOpenTrue { times: usize },
+    IsOpenFalse { times: usize },
+    WithRoi { roi: CCDChipArea },
+    Untouched,
+}
+
+fn new_camera(mut device: MockCamera, variant: MockCameraType) -> QhyccdCamera {
+    let mut camera_roi = None;
+    match variant {
+        MockCameraType::IsOpenTrue { times } => {
+            device.expect_is_open().times(times).returning(|| Ok(true));
+        }
+        MockCameraType::IsOpenFalse { times } => {
+            device.expect_is_open().times(times).returning(|| Ok(false));
+        }
+        MockCameraType::WithRoi { roi } => {
+            device.expect_is_open().times(1).returning(|| Ok(true));
+            camera_roi = Some(roi);
+        }
+        MockCameraType::Untouched => {}
+    }
+    QhyccdCamera {
+        unique_id: "test_camera".to_owned(),
+        name: "QHYCCD-test_camera".to_owned(),
+        description: "QHYCCD camera".to_owned(),
+        device,
+        binning: RwLock::new(BinningMode { symmetric_value: 1 }),
+        valid_bins: RwLock::new(None),
+        roi: RwLock::new(camera_roi),
+        last_exposure_start_time: RwLock::new(None),
+        last_exposure_duration_us: RwLock::new(None),
+        last_image: RwLock::new(None),
+        exposing: RwLock::new(ExposingState::Idle),
+    }
+}
+
 #[tokio::test]
 async fn qhyccd_camera() {
     //given
@@ -47,27 +84,10 @@ async fn qhyccd_camera() {
     );
 }
 
-fn new_camera(device: MockCamera) -> QhyccdCamera {
-    QhyccdCamera {
-        unique_id: "test_camera".to_owned(),
-        name: "QHYCCD-test_camera".to_owned(),
-        description: "QHYCCD camera".to_owned(),
-        device,
-        binning: RwLock::new(BinningMode { symmetric_value: 1 }),
-        valid_bins: RwLock::new(None),
-        roi: RwLock::new(None),
-        last_exposure_start_time: RwLock::new(None),
-        last_exposure_duration_us: RwLock::new(None),
-        last_image: RwLock::new(None),
-        exposing: RwLock::new(ExposingState::Idle),
-    }
-}
-
 #[tokio::test]
 async fn max_bin_x_success() {
     //given
     let mut mock = MockCamera::new();
-    mock.expect_is_open().times(2).returning(|| Ok(true));
     mock.expect_is_control_available()
         .times(12)
         .withf(|control| {
@@ -88,7 +108,7 @@ async fn max_bin_x_success() {
             _ => panic!("Unexpected control"),
         });
     //when
-    let camera = new_camera(mock);
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 2 });
     //then
     assert_eq!(camera.max_bin_x().await.unwrap(), 8);
     assert_eq!(camera.max_bin_y().await.unwrap(), 8);
@@ -98,7 +118,6 @@ async fn max_bin_x_success() {
 async fn max_bin_x_fail_no_modes() {
     //given
     let mut mock = MockCamera::new();
-    mock.expect_is_open().times(2).returning(|| Ok(true));
     mock.expect_is_control_available()
         .times(12)
         .withf(|control| {
@@ -115,7 +134,7 @@ async fn max_bin_x_fail_no_modes() {
             }))
         });
     //when
-    let camera = new_camera(mock);
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 2 });
     //then
     assert!(camera.max_bin_x().await.is_err());
     assert!(camera.max_bin_y().await.is_err());
@@ -124,10 +143,9 @@ async fn max_bin_x_fail_no_modes() {
 #[tokio::test]
 async fn max_bin_x_fail_not_connected() {
     //given
-    let mut mock = MockCamera::new();
-    mock.expect_is_open().times(2).returning(|| Ok(false));
+    let mock = MockCamera::new();
     //when
-    let camera = new_camera(mock);
+    let camera = new_camera(mock, MockCameraType::IsOpenFalse { times: 2 });
     //then
     assert!(camera.max_bin_x().await.is_err());
     assert!(camera.max_bin_y().await.is_err());
@@ -136,9 +154,8 @@ async fn max_bin_x_fail_not_connected() {
 #[tokio::test]
 async fn camrea_state_success() {
     //given
-    let mut mock = MockCamera::new();
-    mock.expect_is_open().times(1).returning(|| Ok(true));
-    let camera = new_camera(mock);
+    let mock = MockCamera::new();
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
     //when
     let res = camera.camera_state().await;
     //then
@@ -149,9 +166,8 @@ async fn camrea_state_success() {
 #[tokio::test]
 async fn camera_state_fail_not_connected() {
     //given
-    let mut mock = MockCamera::new();
-    mock.expect_is_open().times(1).returning(|| Ok(false));
-    let camera = new_camera(mock);
+    let mock = MockCamera::new();
+    let camera = new_camera(mock, MockCameraType::IsOpenFalse { times: 1 });
     //when
     let res = camera.camera_state().await;
     //then
@@ -169,7 +185,7 @@ async fn connected_fail() {
     mock.expect_is_open()
         .times(1)
         .returning(|| Err(eyre!("Could not acquire read lock on camera handle")));
-    let camera = new_camera(mock);
+    let camera = new_camera(mock, MockCameraType::Untouched);
     //when
     let res = camera.connected().await;
     //then
@@ -183,9 +199,8 @@ async fn connected_fail() {
 #[tokio::test]
 async fn set_connected_already_connected() {
     //given
-    let mut mock = MockCamera::new();
-    mock.expect_is_open().times(1).returning(|| Ok(true));
-    let camera = new_camera(mock);
+    let mock = MockCamera::new();
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
     //when
     let res = camera.set_connected(true).await;
     assert!(res.is_ok());
@@ -194,9 +209,8 @@ async fn set_connected_already_connected() {
 #[tokio::test]
 async fn set_connected_already_disconnected() {
     //given
-    let mut mock = MockCamera::new();
-    mock.expect_is_open().times(1).returning(|| Ok(false));
-    let camera = new_camera(mock);
+    let mock = MockCamera::new();
+    let camera = new_camera(mock, MockCameraType::IsOpenFalse { times: 1 });
     //when
     let res = camera.set_connected(false).await;
     assert!(res.is_ok());
@@ -206,7 +220,6 @@ async fn set_connected_already_disconnected() {
 async fn set_connected_true_success() {
     //given
     let mut mock = MockCamera::new();
-    mock.expect_is_open().times(1).returning(|| Ok(false));
     mock.expect_open().times(1).returning(|| Ok(()));
     mock.expect_get_effective_area().times(1).returning(|| {
         Ok(CCDChipArea {
@@ -235,7 +248,7 @@ async fn set_connected_true_success() {
             Control::CamBin8x8mode => Ok(0_u32),
             _ => panic!("Unexpected control"),
         });
-    let camera = new_camera(mock);
+    let camera = new_camera(mock, MockCameraType::IsOpenFalse { times: 1 });
     //when
     let res = camera.set_connected(true).await;
     assert!(res.is_ok());
@@ -245,9 +258,8 @@ async fn set_connected_true_success() {
 async fn set_connected_false_success() {
     //given
     let mut mock = MockCamera::new();
-    mock.expect_is_open().times(1).returning(|| Ok(true));
     mock.expect_close().times(1).returning(|| Ok(()));
-    let camera = new_camera(mock);
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
     //when
     let res = camera.set_connected(false).await;
     assert!(res.is_ok());
@@ -257,11 +269,10 @@ async fn set_connected_false_success() {
 async fn set_connected_fail_open() {
     //given
     let mut mock = MockCamera::new();
-    mock.expect_is_open().times(1).returning(|| Ok(false));
     mock.expect_open()
         .times(1)
         .returning(|| Err(eyre!("Could not open camera")));
-    let camera = new_camera(mock);
+    let camera = new_camera(mock, MockCameraType::IsOpenFalse { times: 1 });
     //when
     let res = camera.set_connected(true).await;
     //then
@@ -276,7 +287,6 @@ async fn set_connected_fail_open() {
 async fn set_connected_fail_get_effective_area() {
     //given
     let mut mock = MockCamera::new();
-    mock.expect_is_open().times(1).returning(|| Ok(false));
     mock.expect_open().once().returning(|| Ok(()));
     mock.expect_get_effective_area()
         .once()
@@ -300,7 +310,7 @@ async fn set_connected_fail_get_effective_area() {
             Control::CamBin8x8mode => Ok(0_u32),
             _ => panic!("Unexpected control"),
         });
-    let camera = new_camera(mock);
+    let camera = new_camera(mock, MockCameraType::IsOpenFalse { times: 1 });
     //when
     let res = camera.set_connected(true).await;
     //then
@@ -311,11 +321,10 @@ async fn set_connected_fail_get_effective_area() {
 async fn set_connected_fail_close() {
     //given
     let mut mock = MockCamera::new();
-    mock.expect_is_open().times(1).returning(|| Ok(true));
     mock.expect_close()
         .times(1)
         .returning(|| Err(eyre!("Could not close camera")));
-    let camera = new_camera(mock);
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
     //when
     let res = camera.set_connected(false).await;
     //then
@@ -330,7 +339,7 @@ async fn set_connected_fail_close() {
 async fn offset_x_success() {
     //given
     let mock = MockCamera::new();
-    let camera = new_camera(mock);
+    let camera = new_camera(mock, MockCameraType::Untouched);
     //when
     let res = camera.bayer_offset_x().await;
     //then
@@ -342,7 +351,7 @@ async fn offset_x_success() {
 async fn offset_y_success() {
     //given
     let mock = MockCamera::new();
-    let camera = new_camera(mock);
+    let camera = new_camera(mock, MockCameraType::Untouched);
     //when
     let res = camera.bayer_offset_y().await;
     //then
@@ -354,11 +363,10 @@ async fn offset_y_success() {
 async fn sensor_name_success() {
     //given
     let mut mock = MockCamera::new();
-    mock.expect_is_open().times(1).returning(|| Ok(true));
     mock.expect_get_model()
         .once()
         .returning(|| Ok("test_model".to_owned()));
-    let camera = new_camera(mock);
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
     //when
     let res = camera.sensor_name().await;
     assert!(res.is_ok());
@@ -369,11 +377,10 @@ async fn sensor_name_success() {
 async fn sensor_name_fail_get_model() {
     //given
     let mut mock = MockCamera::new();
-    mock.expect_is_open().times(1).returning(|| Ok(true));
     mock.expect_get_model()
         .once()
         .returning(|| Err(eyre!("Could not get model")));
-    let camera = new_camera(mock);
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
     //when
     let res = camera.sensor_name().await;
     //then
@@ -387,9 +394,8 @@ async fn sensor_name_fail_get_model() {
 #[tokio::test]
 async fn sensor_name_fail_not_connected() {
     //given
-    let mut mock = MockCamera::new();
-    mock.expect_is_open().times(1).returning(|| Ok(false));
-    let camera = new_camera(mock);
+    let mock = MockCamera::new();
+    let camera = new_camera(mock, MockCameraType::IsOpenFalse { times: 1 });
     //when
     let res = camera.sensor_name().await;
     //then
@@ -403,9 +409,8 @@ async fn sensor_name_fail_not_connected() {
 #[tokio::test]
 async fn bin_x_success() {
     //given
-    let mut mock = MockCamera::new();
-    mock.expect_is_open().times(1).returning(|| Ok(true));
-    let camera = new_camera(mock);
+    let mock = MockCamera::new();
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
     //when
     let res = camera.bin_x().await;
     //then
@@ -416,9 +421,8 @@ async fn bin_x_success() {
 #[tokio::test]
 async fn bin_y_success() {
     //given
-    let mut mock = MockCamera::new();
-    mock.expect_is_open().times(1).returning(|| Ok(true));
-    let camera = new_camera(mock);
+    let mock = MockCamera::new();
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
     //when
     let res = camera.bin_y().await;
     //then
@@ -429,9 +433,8 @@ async fn bin_y_success() {
 #[tokio::test]
 async fn bin_x_fail_not_connected() {
     //given
-    let mut mock = MockCamera::new();
-    mock.expect_is_open().times(1).returning(|| Ok(false));
-    let camera = new_camera(mock);
+    let mock = MockCamera::new();
+    let camera = new_camera(mock, MockCameraType::IsOpenFalse { times: 1 });
     //when
     let res = camera.bin_x().await;
     //then
@@ -445,9 +448,8 @@ async fn bin_x_fail_not_connected() {
 #[tokio::test]
 async fn bin_y_fail_not_connected() {
     //given
-    let mut mock = MockCamera::new();
-    mock.expect_is_open().times(1).returning(|| Ok(false));
-    let camera = new_camera(mock);
+    let mock = MockCamera::new();
+    let camera = new_camera(mock, MockCameraType::IsOpenFalse { times: 1 });
     //when
     let res = camera.bin_y().await;
     //then
@@ -462,12 +464,11 @@ async fn bin_y_fail_not_connected() {
 async fn set_bin_x_success() {
     //given
     let mut mock = MockCamera::new();
-    mock.expect_is_open().times(1).returning(|| Ok(true));
     mock.expect_set_bin_mode()
         .times(1)
         .withf(|bin_x: &u32, bin_y: &u32| *bin_x == 1 && *bin_y == 1)
         .returning(|_, _| Ok(()));
-    let camera = new_camera(mock);
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
     //when
     let res = camera.set_bin_x(1).await;
     //then
@@ -478,12 +479,11 @@ async fn set_bin_x_success() {
 async fn set_bin_y_success() {
     //given
     let mut mock = MockCamera::new();
-    mock.expect_is_open().times(1).returning(|| Ok(true));
     mock.expect_set_bin_mode()
         .times(1)
         .withf(|bin_x: &u32, bin_y: &u32| *bin_x == 1 && *bin_y == 1)
         .returning(|_, _| Ok(()));
-    let camera = new_camera(mock);
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
     //when
     let res = camera.set_bin_y(1).await;
     //then
@@ -493,9 +493,8 @@ async fn set_bin_y_success() {
 #[tokio::test]
 async fn set_bin_x_fail_not_connected() {
     //given
-    let mut mock = MockCamera::new();
-    mock.expect_is_open().times(1).returning(|| Ok(false));
-    let camera = new_camera(mock);
+    let mock = MockCamera::new();
+    let camera = new_camera(mock, MockCameraType::IsOpenFalse { times: 1 });
     //when
     let res = camera.set_bin_x(1).await;
     //then
@@ -509,9 +508,8 @@ async fn set_bin_x_fail_not_connected() {
 #[tokio::test]
 async fn set_bin_y_fail_not_connected() {
     //given
-    let mut mock = MockCamera::new();
-    mock.expect_is_open().times(1).returning(|| Ok(false));
-    let camera = new_camera(mock);
+    let mock = MockCamera::new();
+    let camera = new_camera(mock, MockCameraType::IsOpenFalse { times: 1 });
     //when
     let res = camera.set_bin_y(1).await;
     //then
@@ -526,12 +524,11 @@ async fn set_bin_y_fail_not_connected() {
 async fn set_bin_x_fail_set_bin_mode() {
     //given
     let mut mock = MockCamera::new();
-    mock.expect_is_open().times(1).returning(|| Ok(true));
     mock.expect_set_bin_mode()
         .times(1)
         .withf(|bin_x: &u32, bin_y: &u32| *bin_x == 2 && *bin_y == 2)
         .returning(|_, _| Err(eyre!("Could not set bin mode")));
-    let camera = new_camera(mock);
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
     //when
     let res = camera.set_bin_x(2).await;
     //then
@@ -546,12 +543,11 @@ async fn set_bin_x_fail_set_bin_mode() {
 async fn set_bin_y_fail_set_bin_mode() {
     //given
     let mut mock = MockCamera::new();
-    mock.expect_is_open().times(1).returning(|| Ok(true));
     mock.expect_set_bin_mode()
         .once()
         .withf(|bin_x: &u32, bin_y: &u32| *bin_x == 2 && *bin_y == 2)
         .returning(|_, _| Err(eyre!("Could not set bin mode")));
-    let camera = new_camera(mock);
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
     //when
     let res = camera.set_bin_y(2).await;
     //then
@@ -566,7 +562,7 @@ async fn set_bin_y_fail_set_bin_mode() {
 async fn set_bin_x_fail_invalid_bin() {
     //given
     let mock = MockCamera::new();
-    let camera = new_camera(mock);
+    let camera = new_camera(mock, MockCameraType::Untouched);
     //when
     let res = camera.set_bin_x(0).await;
     //then
@@ -581,7 +577,7 @@ async fn set_bin_x_fail_invalid_bin() {
 async fn set_bin_y_fail_invalid_bin() {
     //given
     let mock = MockCamera::new();
-    let camera = new_camera(mock);
+    let camera = new_camera(mock, MockCameraType::Untouched);
     //when
     let res = camera.set_bin_y(0).await;
     //then
@@ -596,7 +592,7 @@ async fn set_bin_y_fail_invalid_bin() {
 async fn unimplmented_functions() {
     //given
     let mock = MockCamera::new();
-    let camera = new_camera(mock);
+    let camera = new_camera(mock, MockCameraType::Untouched);
     //when
     assert_eq!(
         camera.electrons_per_adu().await.err().unwrap().to_string(),
@@ -633,12 +629,11 @@ async fn unimplmented_functions() {
 async fn has_shutter_true_success() {
     //given
     let mut mock = MockCamera::new();
-    mock.expect_is_open().once().returning(|| Ok(true));
     mock.expect_is_control_available()
         .once()
         .withf(|control| *control == qhyccd_rs::Control::CamMechanicalShutter)
         .returning(|_| Ok(0_u32));
-    let camera = new_camera(mock);
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
     //when
     let res = camera.has_shutter().await;
     //then
@@ -650,7 +645,6 @@ async fn has_shutter_true_success() {
 async fn has_shutter_false_success() {
     //given
     let mut mock = MockCamera::new();
-    mock.expect_is_open().once().returning(|| Ok(true));
     mock.expect_is_control_available()
         .once()
         .withf(|control| *control == qhyccd_rs::Control::CamMechanicalShutter)
@@ -659,7 +653,7 @@ async fn has_shutter_false_success() {
                 feature: qhyccd_rs::Control::CamMechanicalShutter
             }))
         });
-    let camera = new_camera(mock);
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
     //when
     let res = camera.has_shutter().await;
     //then
@@ -670,9 +664,8 @@ async fn has_shutter_false_success() {
 #[tokio::test]
 async fn has_shutter_fail_not_connected() {
     //given
-    let mut mock = MockCamera::new();
-    mock.expect_is_open().once().returning(|| Ok(false));
-    let camera = new_camera(mock);
+    let mock = MockCamera::new();
+    let camera = new_camera(mock, MockCameraType::IsOpenFalse { times: 1 });
     //when
     let res = camera.has_shutter().await;
     //then
@@ -686,9 +679,8 @@ async fn has_shutter_fail_not_connected() {
 #[tokio::test]
 async fn image_array_empty() {
     //given
-    let mut mock = MockCamera::new();
-    mock.expect_is_open().once().returning(|| Ok(true));
-    let camera = new_camera(mock);
+    let mock = MockCamera::new();
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
     //when
     let res = camera.image_array().await;
     //then
@@ -702,9 +694,8 @@ async fn image_array_empty() {
 #[tokio::test]
 async fn image_array_fail_not_connected() {
     //given
-    let mut mock = MockCamera::new();
-    mock.expect_is_open().once().returning(|| Ok(false));
-    let camera = new_camera(mock);
+    let mock = MockCamera::new();
+    let camera = new_camera(mock, MockCameraType::IsOpenFalse { times: 1 });
     //when
     let res = camera.image_array().await;
     //then
@@ -719,11 +710,10 @@ async fn image_array_fail_not_connected() {
 async fn image_ready_not_ready_success() {
     //given
     let mut mock = MockCamera::new();
-    mock.expect_is_open().once().returning(|| Ok(true));
     mock.expect_get_remaining_exposure_us()
         .once()
         .returning(|| Ok(10000_u32));
-    let camera = new_camera(mock);
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
     //when
     let res = camera.image_ready().await;
     //then
@@ -735,11 +725,10 @@ async fn image_ready_not_ready_success() {
 async fn image_ready_ready_success() {
     //given
     let mut mock = MockCamera::new();
-    mock.expect_is_open().once().returning(|| Ok(true));
     mock.expect_get_remaining_exposure_us()
         .once()
         .returning(|| Ok(0_u32));
-    let camera = new_camera(mock);
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
     //when
     let res = camera.image_ready().await;
     //then
@@ -750,9 +739,8 @@ async fn image_ready_ready_success() {
 #[tokio::test]
 async fn image_ready_fail_not_connected() {
     //given
-    let mut mock = MockCamera::new();
-    mock.expect_is_open().once().returning(|| Ok(false));
-    let camera = new_camera(mock);
+    let mock = MockCamera::new();
+    let camera = new_camera(mock, MockCameraType::IsOpenFalse { times: 1 });
     //when
     let res = camera.image_ready().await;
     //then
@@ -766,9 +754,8 @@ async fn image_ready_fail_not_connected() {
 #[tokio::test]
 async fn last_exposure_start_time_fail_not_set() {
     //given
-    let mut mock = MockCamera::new();
-    mock.expect_is_open().once().returning(|| Ok(true));
-    let camera = new_camera(mock);
+    let mock = MockCamera::new();
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
     //when
     let res = camera.last_exposure_start_time().await;
     //then
@@ -782,9 +769,8 @@ async fn last_exposure_start_time_fail_not_set() {
 #[tokio::test]
 async fn last_exposure_start_time_fail_not_connected() {
     //given
-    let mut mock = MockCamera::new();
-    mock.expect_is_open().once().returning(|| Ok(false));
-    let camera = new_camera(mock);
+    let mock = MockCamera::new();
+    let camera = new_camera(mock, MockCameraType::IsOpenFalse { times: 1 });
     //when
     let res = camera.last_exposure_start_time().await;
     //then
@@ -798,9 +784,8 @@ async fn last_exposure_start_time_fail_not_connected() {
 #[tokio::test]
 async fn last_exposure_duration_fail_not_set() {
     //given
-    let mut mock = MockCamera::new();
-    mock.expect_is_open().once().returning(|| Ok(true));
-    let camera = new_camera(mock);
+    let mock = MockCamera::new();
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
     //when
     let res = camera.last_exposure_duration().await;
     //then
@@ -814,11 +799,84 @@ async fn last_exposure_duration_fail_not_set() {
 #[tokio::test]
 async fn last_exposure_duration_fail_not_connected() {
     //given
-    let mut mock = MockCamera::new();
-    mock.expect_is_open().once().returning(|| Ok(false));
-    let camera = new_camera(mock);
+    let mock = MockCamera::new();
+    let camera = new_camera(mock, MockCameraType::IsOpenFalse { times: 1 });
     //when
     let res = camera.last_exposure_duration().await;
+    //then
+    assert!(res.is_err());
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::NOT_CONNECTED.to_string()
+    )
+}
+
+#[tokio::test]
+async fn camera_xsize_success() {
+    //given
+    let mock = MockCamera::new();
+    let camera = new_camera(
+        mock,
+        MockCameraType::WithRoi {
+            roi: CCDChipArea {
+                start_x: 0,
+                start_y: 0,
+                width: 100,
+                height: 100,
+            },
+        },
+    );
+    //when
+    let res = camera.camera_xsize().await;
+    //then
+    assert!(res.is_ok());
+    assert_eq!(res.unwrap(), 100_i32);
+}
+
+#[tokio::test]
+async fn camera_xsize_fail_not_connected() {
+    //given
+    let mock = MockCamera::new();
+    let camera = new_camera(mock, MockCameraType::IsOpenFalse { times: 1 });
+    //when
+    let res = camera.camera_xsize().await;
+    //then
+    assert!(res.is_err());
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::NOT_CONNECTED.to_string()
+    )
+}
+
+#[tokio::test]
+async fn camera_ysize_success() {
+    //given
+    let mock = MockCamera::new();
+    let camera = new_camera(
+        mock,
+        MockCameraType::WithRoi {
+            roi: CCDChipArea {
+                start_x: 0,
+                start_y: 0,
+                width: 100,
+                height: 100,
+            },
+        },
+    );
+    //when
+    let res = camera.camera_ysize().await;
+    //then
+    assert!(res.is_ok());
+    assert_eq!(res.unwrap(), 100_i32);
+}
+
+#[tokio::test]
+async fn camera_ysize_fail_not_connected() {
+    //given
+    let mock = MockCamera::new();
+    let camera = new_camera(mock, MockCameraType::IsOpenFalse { times: 1 });
+    //when
+    let res = camera.camera_ysize().await;
     //then
     assert!(res.is_err());
     assert_eq!(
