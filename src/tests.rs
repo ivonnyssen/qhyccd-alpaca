@@ -737,6 +737,24 @@ async fn image_ready_ready_success() {
 }
 
 #[tokio::test]
+async fn image_ready_fail_get_remaining_exposure_us() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_get_remaining_exposure_us()
+        .once()
+        .returning(|| Err(eyre!(qhyccd_rs::QHYError::GetExposureRemainingError)));
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
+    //when
+    let res = camera.image_ready().await;
+    //then
+    assert!(res.is_err());
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::UNSPECIFIED.to_string()
+    );
+}
+
+#[tokio::test]
 async fn image_ready_fail_not_connected() {
     //given
     let mock = MockCamera::new();
@@ -886,6 +904,43 @@ async fn camera_ysize_fail_not_connected() {
 }
 
 #[tokio::test]
+async fn start_x_success() {
+    //given
+    let mock = MockCamera::new();
+    let camera = new_camera(
+        mock,
+        MockCameraType::WithRoi {
+            roi: CCDChipArea {
+                start_x: 100,
+                start_y: 0,
+                width: 10,
+                height: 10,
+            },
+        },
+    );
+    //when
+    let res = camera.start_x().await;
+    //then
+    assert!(res.is_ok());
+    assert_eq!(res.unwrap(), 100_i32);
+}
+
+#[tokio::test]
+async fn start_x_fail_not_connected() {
+    //given
+    let mock = MockCamera::new();
+    let camera = new_camera(mock, MockCameraType::IsOpenFalse { times: 1 });
+    //when
+    let res = camera.start_x().await;
+    //then
+    assert!(res.is_err());
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::NOT_CONNECTED.to_string()
+    )
+}
+
+#[tokio::test]
 async fn set_start_x_success() {
     //given
     let mut mock = MockCamera::new();
@@ -987,6 +1042,43 @@ async fn set_start_x_fail_not_connected() {
 }
 
 #[tokio::test]
+async fn start_y_success() {
+    //given
+    let mock = MockCamera::new();
+    let camera = new_camera(
+        mock,
+        MockCameraType::WithRoi {
+            roi: CCDChipArea {
+                start_x: 0,
+                start_y: 100,
+                width: 10,
+                height: 10,
+            },
+        },
+    );
+    //when
+    let res = camera.start_y().await;
+    //then
+    assert!(res.is_ok());
+    assert_eq!(res.unwrap(), 100_i32);
+}
+
+#[tokio::test]
+async fn start_y_fail_not_connected() {
+    //given
+    let mock = MockCamera::new();
+    let camera = new_camera(mock, MockCameraType::IsOpenFalse { times: 1 });
+    //when
+    let res = camera.start_y().await;
+    //then
+    assert!(res.is_err());
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::NOT_CONNECTED.to_string()
+    )
+}
+
+#[tokio::test]
 async fn set_start_y_success() {
     //given
     let mut mock = MockCamera::new();
@@ -1079,6 +1171,144 @@ async fn set_start_y_fail_not_connected() {
     let camera = new_camera(mock, MockCameraType::IsOpenFalse { times: 1 });
     //when
     let res = camera.set_start_y(100).await;
+    //then
+    assert!(res.is_err());
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::NOT_CONNECTED.to_string()
+    )
+}
+
+#[tokio::test]
+async fn num_x_success() {
+    //given
+    let mock = MockCamera::new();
+    let camera = new_camera(
+        mock,
+        MockCameraType::WithRoi {
+            roi: CCDChipArea {
+                start_x: 0,
+                start_y: 0,
+                width: 100,
+                height: 10,
+            },
+        },
+    );
+    //when
+    let res = camera.num_x().await;
+    //then
+    assert!(res.is_ok());
+    assert_eq!(res.unwrap(), 100_i32);
+}
+
+#[tokio::test]
+async fn num_x_fail_not_connected() {
+    //given
+    let mock = MockCamera::new();
+    let camera = new_camera(mock, MockCameraType::IsOpenFalse { times: 1 });
+    //when
+    let res = camera.num_x().await;
+    //then
+    assert!(res.is_err());
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::NOT_CONNECTED.to_string()
+    )
+}
+
+#[tokio::test]
+async fn set_num_x_success() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_set_roi()
+        .once()
+        .withf(|roi| {
+            *roi == CCDChipArea {
+                start_x: 0,
+                start_y: 0,
+                width: 100,
+                height: 10,
+            }
+        })
+        .returning(|_| Ok(()));
+    let camera = new_camera(
+        mock,
+        MockCameraType::WithRoi {
+            roi: CCDChipArea {
+                start_x: 0,
+                start_y: 0,
+                width: 10,
+                height: 10,
+            },
+        },
+    );
+    //when
+    let res = camera.set_num_x(100).await;
+    //then
+    assert!(res.is_ok());
+    assert_eq!(
+        *camera.roi.read().await,
+        Some(CCDChipArea {
+            start_x: 0,
+            start_y: 0,
+            width: 100,
+            height: 10,
+        })
+    );
+}
+
+#[tokio::test]
+async fn set_num_x_fail_set_roi() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_set_roi()
+        .once()
+        .withf(|roi| {
+            *roi == CCDChipArea {
+                start_x: 0,
+                start_y: 0,
+                width: 100,
+                height: 100,
+            }
+        })
+        .returning(|_| Err(eyre!(qhyccd_rs::QHYError::SetRoiError { error_code: 123 })));
+    let camera = new_camera(
+        mock,
+        MockCameraType::WithRoi {
+            roi: CCDChipArea {
+                start_x: 0,
+                start_y: 0,
+                width: 10,
+                height: 100,
+            },
+        },
+    );
+    //when
+    let res = camera.set_num_x(100).await;
+    //then
+    assert!(res.is_err());
+    assert_eq!(
+        *camera.roi.read().await,
+        Some(CCDChipArea {
+            start_x: 0,
+            start_y: 0,
+            width: 10,
+            height: 100,
+        })
+    );
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::VALUE_NOT_SET.to_string()
+    )
+}
+
+#[tokio::test]
+async fn set_num_x_fail_not_connected() {
+    //given
+    let mock = MockCamera::new();
+    let camera = new_camera(mock, MockCameraType::IsOpenFalse { times: 1 });
+    //when
+    let res = camera.set_num_x(100).await;
     //then
     assert!(res.is_err());
     assert_eq!(
