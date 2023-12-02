@@ -1232,6 +1232,21 @@ async fn start_y_success() {
 }
 
 #[tokio::test]
+async fn start_y_fail_no_roi() {
+    //given
+    let mock = MockCamera::new();
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
+    //when
+    let res = camera.start_y().await;
+    //then
+    assert!(res.is_err());
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::VALUE_NOT_SET.to_string()
+    )
+}
+
+#[tokio::test]
 async fn start_y_fail_not_connected() {
     //given
     let mock = MockCamera::new();
@@ -1285,6 +1300,21 @@ async fn set_start_y_success() {
             height: 100,
         })
     );
+}
+
+#[tokio::test]
+async fn set_start_y_fail_no_roi() {
+    //given
+    let mock = MockCamera::new();
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
+    //when
+    let res = camera.set_start_y(100).await;
+    //then
+    assert!(res.is_err());
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::VALUE_NOT_SET.to_string()
+    )
 }
 
 #[tokio::test]
