@@ -945,6 +945,21 @@ async fn camera_xsize_success() {
 }
 
 #[tokio::test]
+async fn camera_xsize_fail_no_roi() {
+    //given
+    let mock = MockCamera::new();
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
+    //when
+    let res = camera.camera_xsize().await;
+    //then
+    assert!(res.is_err());
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::VALUE_NOT_SET.to_string()
+    )
+}
+
+#[tokio::test]
 async fn camera_xsize_fail_not_connected() {
     //given
     let mock = MockCamera::new();
@@ -979,6 +994,21 @@ async fn camera_ysize_success() {
     //then
     assert!(res.is_ok());
     assert_eq!(res.unwrap(), 100_i32);
+}
+
+#[tokio::test]
+async fn camera_ysize_fail_no_roi() {
+    //given
+    let mock = MockCamera::new();
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
+    //when
+    let res = camera.camera_ysize().await;
+    //then
+    assert!(res.is_err());
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::VALUE_NOT_SET.to_string()
+    )
 }
 
 #[tokio::test]
