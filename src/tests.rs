@@ -8,15 +8,19 @@ use ndarray::Array3;
 enum MockCameraType {
     IsOpenTrue { times: usize },
     IsOpenFalse { times: usize },
-    WithRoi { roi: CCDChipArea },
+    WithRoi { camera_roi: CCDChipArea },
     Untouched,
     Exposing,
     WithImage { image_array: ImageArray },
+    WithLastExposureStart { start_time: SystemTime },
+    WithLastExposureDuration { duration_us: f64 },
 }
 
 fn new_camera(mut device: MockCamera, variant: MockCameraType) -> QhyccdCamera {
-    let mut camera_roi = None;
+    let mut roi = RwLock::new(None);
     let mut exposing = RwLock::new(ExposingState::Idle);
+    let mut last_exposure_start_time = RwLock::new(None);
+    let mut last_exposure_duration_us = RwLock::new(None);
     let mut last_image = RwLock::new(None);
     match variant {
         MockCameraType::IsOpenTrue { times } => {
@@ -25,9 +29,9 @@ fn new_camera(mut device: MockCamera, variant: MockCameraType) -> QhyccdCamera {
         MockCameraType::IsOpenFalse { times } => {
             device.expect_is_open().times(times).returning(|| Ok(false));
         }
-        MockCameraType::WithRoi { roi } => {
+        MockCameraType::WithRoi { camera_roi } => {
             device.expect_is_open().times(1).returning(|| Ok(true));
-            camera_roi = Some(roi);
+            roi = RwLock::new(Some(camera_roi));
         }
         MockCameraType::Untouched => {}
         MockCameraType::Exposing => {
@@ -43,6 +47,14 @@ fn new_camera(mut device: MockCamera, variant: MockCameraType) -> QhyccdCamera {
             device.expect_is_open().times(1).returning(|| Ok(true));
             last_image = RwLock::new(Some(image));
         }
+        MockCameraType::WithLastExposureStart { start_time } => {
+            device.expect_is_open().times(1).returning(|| Ok(true));
+            last_exposure_start_time = RwLock::new(Some(start_time));
+        }
+        MockCameraType::WithLastExposureDuration { duration_us } => {
+            device.expect_is_open().times(1).returning(|| Ok(true));
+            last_exposure_duration_us = RwLock::new(Some(duration_us));
+        }
     }
     QhyccdCamera {
         unique_id: "test_camera".to_owned(),
@@ -51,9 +63,9 @@ fn new_camera(mut device: MockCamera, variant: MockCameraType) -> QhyccdCamera {
         device,
         binning: RwLock::new(BinningMode { symmetric_value: 1 }),
         valid_bins: RwLock::new(None),
-        roi: RwLock::new(camera_roi),
-        last_exposure_start_time: RwLock::new(None),
-        last_exposure_duration_us: RwLock::new(None),
+        roi,
+        last_exposure_start_time,
+        last_exposure_duration_us,
         last_image,
         exposing,
     }
@@ -817,6 +829,23 @@ async fn image_ready_fail_not_connected() {
 }
 
 #[tokio::test]
+async fn last_exposure_start_time_success() {
+    //given
+    let mock = MockCamera::new();
+    let camera = new_camera(
+        mock,
+        MockCameraType::WithLastExposureStart {
+            start_time: SystemTime::UNIX_EPOCH,
+        },
+    );
+    //when
+    let res = camera.last_exposure_start_time().await;
+    //then
+    assert!(res.is_ok());
+    assert_eq!(res.unwrap(), SystemTime::UNIX_EPOCH);
+}
+
+#[tokio::test]
 async fn last_exposure_start_time_fail_not_set() {
     //given
     let mock = MockCamera::new();
@@ -844,6 +873,23 @@ async fn last_exposure_start_time_fail_not_connected() {
         res.err().unwrap().to_string(),
         ASCOMError::NOT_CONNECTED.to_string()
     )
+}
+
+#[tokio::test]
+async fn last_exposure_duration_fail_success() {
+    //given
+    let mock = MockCamera::new();
+    let camera = new_camera(
+        mock,
+        MockCameraType::WithLastExposureDuration {
+            duration_us: 1000_f64,
+        },
+    );
+    //when
+    let res = camera.last_exposure_duration().await;
+    //then
+    assert!(res.is_ok());
+    assert_eq!(res.unwrap(), 1000_f64);
 }
 
 #[tokio::test]
@@ -883,7 +929,7 @@ async fn camera_xsize_success() {
     let camera = new_camera(
         mock,
         MockCameraType::WithRoi {
-            roi: CCDChipArea {
+            camera_roi: CCDChipArea {
                 start_x: 0,
                 start_y: 0,
                 width: 100,
@@ -920,7 +966,7 @@ async fn camera_ysize_success() {
     let camera = new_camera(
         mock,
         MockCameraType::WithRoi {
-            roi: CCDChipArea {
+            camera_roi: CCDChipArea {
                 start_x: 0,
                 start_y: 0,
                 width: 100,
@@ -957,7 +1003,7 @@ async fn start_x_success() {
     let camera = new_camera(
         mock,
         MockCameraType::WithRoi {
-            roi: CCDChipArea {
+            camera_roi: CCDChipArea {
                 start_x: 100,
                 start_y: 0,
                 width: 10,
@@ -1005,7 +1051,7 @@ async fn set_start_x_success() {
     let camera = new_camera(
         mock,
         MockCameraType::WithRoi {
-            roi: CCDChipArea {
+            camera_roi: CCDChipArea {
                 start_x: 0,
                 start_y: 0,
                 width: 100,
@@ -1046,7 +1092,7 @@ async fn set_start_x_fail_set_roi() {
     let camera = new_camera(
         mock,
         MockCameraType::WithRoi {
-            roi: CCDChipArea {
+            camera_roi: CCDChipArea {
                 start_x: 0,
                 start_y: 0,
                 width: 100,
@@ -1095,7 +1141,7 @@ async fn start_y_success() {
     let camera = new_camera(
         mock,
         MockCameraType::WithRoi {
-            roi: CCDChipArea {
+            camera_roi: CCDChipArea {
                 start_x: 0,
                 start_y: 100,
                 width: 10,
@@ -1143,7 +1189,7 @@ async fn set_start_y_success() {
     let camera = new_camera(
         mock,
         MockCameraType::WithRoi {
-            roi: CCDChipArea {
+            camera_roi: CCDChipArea {
                 start_x: 0,
                 start_y: 0,
                 width: 100,
@@ -1184,7 +1230,7 @@ async fn set_start_y_fail_set_roi() {
     let camera = new_camera(
         mock,
         MockCameraType::WithRoi {
-            roi: CCDChipArea {
+            camera_roi: CCDChipArea {
                 start_x: 0,
                 start_y: 0,
                 width: 100,
@@ -1233,7 +1279,7 @@ async fn num_x_success() {
     let camera = new_camera(
         mock,
         MockCameraType::WithRoi {
-            roi: CCDChipArea {
+            camera_roi: CCDChipArea {
                 start_x: 0,
                 start_y: 0,
                 width: 100,
@@ -1281,7 +1327,7 @@ async fn set_num_x_success() {
     let camera = new_camera(
         mock,
         MockCameraType::WithRoi {
-            roi: CCDChipArea {
+            camera_roi: CCDChipArea {
                 start_x: 0,
                 start_y: 0,
                 width: 10,
@@ -1322,7 +1368,7 @@ async fn set_num_x_fail_set_roi() {
     let camera = new_camera(
         mock,
         MockCameraType::WithRoi {
-            roi: CCDChipArea {
+            camera_roi: CCDChipArea {
                 start_x: 0,
                 start_y: 0,
                 width: 10,
