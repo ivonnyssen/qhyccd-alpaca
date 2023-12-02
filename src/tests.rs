@@ -37,7 +37,7 @@ fn new_camera(mut device: MockCamera, variant: MockCameraType) -> QhyccdCamera {
         MockCameraType::Exposing => {
             device.expect_is_open().times(1).returning(|| Ok(true));
             exposing = RwLock::new(ExposingState::Exposing {
-                start: SystemTime::now(),
+                start: SystemTime::UNIX_EPOCH,
                 expected_duration_us: 10000_f64,
                 stop_tx: None,
                 done_rx: watch::channel(false).1,
@@ -1049,6 +1049,21 @@ async fn start_x_success() {
 }
 
 #[tokio::test]
+async fn camera_start_x_fail_no_roi() {
+    //given
+    let mock = MockCamera::new();
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
+    //when
+    let res = camera.start_x().await;
+    //then
+    assert!(res.is_err());
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::VALUE_NOT_SET.to_string()
+    )
+}
+
+#[tokio::test]
 async fn start_x_fail_not_connected() {
     //given
     let mock = MockCamera::new();
@@ -1102,6 +1117,36 @@ async fn set_start_x_success() {
             height: 100,
         })
     );
+}
+
+#[tokio::test]
+async fn camera_start_x_fail_value_too_small() {
+    //given
+    let mock = MockCamera::new();
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 0 });
+    //when
+    let res = camera.set_start_x(-1).await;
+    //then
+    assert!(res.is_err());
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::invalid_value("start_x must be >= 0").to_string()
+    )
+}
+
+#[tokio::test]
+async fn camera_set_start_x_fail_no_roi() {
+    //given
+    let mock = MockCamera::new();
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
+    //when
+    let res = camera.set_start_x(100).await;
+    //then
+    assert!(res.is_err());
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::VALUE_NOT_SET.to_string()
+    )
 }
 
 #[tokio::test]
