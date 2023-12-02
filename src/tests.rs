@@ -3,16 +3,21 @@ use qhyccd_rs::Control;
 use super::*;
 use crate::mocks::MockCamera;
 use eyre::eyre;
+use ndarray::Array3;
 
 enum MockCameraType {
     IsOpenTrue { times: usize },
     IsOpenFalse { times: usize },
     WithRoi { roi: CCDChipArea },
     Untouched,
+    Exposing,
+    WithImage { image_array: ImageArray },
 }
 
 fn new_camera(mut device: MockCamera, variant: MockCameraType) -> QhyccdCamera {
     let mut camera_roi = None;
+    let mut exposing = RwLock::new(ExposingState::Idle);
+    let mut last_image = RwLock::new(None);
     match variant {
         MockCameraType::IsOpenTrue { times } => {
             device.expect_is_open().times(times).returning(|| Ok(true));
@@ -25,6 +30,19 @@ fn new_camera(mut device: MockCamera, variant: MockCameraType) -> QhyccdCamera {
             camera_roi = Some(roi);
         }
         MockCameraType::Untouched => {}
+        MockCameraType::Exposing => {
+            device.expect_is_open().times(1).returning(|| Ok(true));
+            exposing = RwLock::new(ExposingState::Exposing {
+                start: SystemTime::now(),
+                expected_duration_us: 10000_f64,
+                stop_tx: None,
+                done_rx: watch::channel(false).1,
+            });
+        }
+        MockCameraType::WithImage { image_array: image } => {
+            device.expect_is_open().times(1).returning(|| Ok(true));
+            last_image = RwLock::new(Some(image));
+        }
     }
     QhyccdCamera {
         unique_id: "test_camera".to_owned(),
@@ -36,8 +54,8 @@ fn new_camera(mut device: MockCamera, variant: MockCameraType) -> QhyccdCamera {
         roi: RwLock::new(camera_roi),
         last_exposure_start_time: RwLock::new(None),
         last_exposure_duration_us: RwLock::new(None),
-        last_image: RwLock::new(None),
-        exposing: RwLock::new(ExposingState::Idle),
+        last_image,
+        exposing,
     }
 }
 
@@ -161,6 +179,18 @@ async fn camrea_state_success() {
     //then
     assert!(res.is_ok());
     assert_eq!(res.unwrap(), CameraState::Idle);
+}
+
+#[tokio::test]
+async fn camera_state_success_exposing() {
+    //given
+    let mock = MockCamera::new();
+    let camera = new_camera(mock, MockCameraType::Exposing);
+    //when
+    let res = camera.camera_state().await;
+    //then
+    assert!(res.is_ok());
+    assert_eq!(res.unwrap(), CameraState::Exposing);
 }
 
 #[tokio::test]
@@ -674,6 +704,23 @@ async fn has_shutter_fail_not_connected() {
         res.err().unwrap().to_string(),
         ASCOMError::NOT_CONNECTED.to_string()
     );
+}
+
+#[tokio::test]
+async fn image_array_success() {
+    //given
+    let mock = MockCamera::new();
+    let camera = new_camera(
+        mock,
+        MockCameraType::WithImage {
+            image_array: Array3::<u16>::zeros((10 as usize, 10 as usize, 3)).into(),
+        },
+    );
+    //when
+    let res = camera.image_array().await;
+    //then
+    assert!(res.is_ok());
+    assert_eq!(res.unwrap().shape(), [10, 10, 3]);
 }
 
 #[tokio::test]
