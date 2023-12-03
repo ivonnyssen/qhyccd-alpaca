@@ -1120,7 +1120,7 @@ async fn set_start_x_success() {
 }
 
 #[tokio::test]
-async fn camera_start_x_fail_value_too_small() {
+async fn set_start_x_fail_value_too_small() {
     //given
     let mock = MockCamera::new();
     let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 0 });
@@ -1135,7 +1135,7 @@ async fn camera_start_x_fail_value_too_small() {
 }
 
 #[tokio::test]
-async fn camera_set_start_x_fail_no_roi() {
+async fn set_start_x_fail_no_roi() {
     //given
     let mock = MockCamera::new();
     let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
@@ -1303,6 +1303,21 @@ async fn set_start_y_success() {
 }
 
 #[tokio::test]
+async fn set_start_y_fail_value_too_small() {
+    //given
+    let mock = MockCamera::new();
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 0 });
+    //when
+    let res = camera.set_start_y(-1).await;
+    //then
+    assert!(res.is_err());
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::invalid_value("start_y must be >= 0").to_string()
+    )
+}
+
+#[tokio::test]
 async fn set_start_y_fail_no_roi() {
     //given
     let mock = MockCamera::new();
@@ -1400,6 +1415,21 @@ async fn num_x_success() {
 }
 
 #[tokio::test]
+async fn num_x_fail_no_roi() {
+    //given
+    let mock = MockCamera::new();
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
+    //when
+    let res = camera.num_x().await;
+    //then
+    assert!(res.is_err());
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::VALUE_NOT_SET.to_string()
+    )
+}
+
+#[tokio::test]
 async fn num_x_fail_not_connected() {
     //given
     let mock = MockCamera::new();
@@ -1453,6 +1483,21 @@ async fn set_num_x_success() {
             height: 10,
         })
     );
+}
+
+#[tokio::test]
+async fn set_num_x_fail_no_roi() {
+    //given
+    let mock = MockCamera::new();
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
+    //when
+    let res = camera.set_num_x(100).await;
+    //then
+    assert!(res.is_err());
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::VALUE_NOT_SET.to_string()
+    )
 }
 
 #[tokio::test]
