@@ -1486,6 +1486,21 @@ async fn set_num_x_success() {
 }
 
 #[tokio::test]
+async fn set_num_x_fail_value_too_small() {
+    //given
+    let mock = MockCamera::new();
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 0 });
+    //when
+    let res = camera.set_num_x(-1).await;
+    //then
+    assert!(res.is_err());
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::invalid_value("num_x must be >= 0").to_string()
+    )
+}
+
+#[tokio::test]
 async fn set_num_x_fail_no_roi() {
     //given
     let mock = MockCamera::new();
@@ -1557,5 +1572,143 @@ async fn set_num_x_fail_not_connected() {
     assert_eq!(
         res.err().unwrap().to_string(),
         ASCOMError::NOT_CONNECTED.to_string()
+    )
+}
+
+#[tokio::test]
+async fn num_y_success() {
+    //given
+    let mock = MockCamera::new();
+    let camera = new_camera(
+        mock,
+        MockCameraType::WithRoi {
+            camera_roi: CCDChipArea {
+                start_x: 0,
+                start_y: 0,
+                width: 10,
+                height: 100,
+            },
+        },
+    );
+    //when
+    let res = camera.num_y().await;
+    //then
+    assert!(res.is_ok());
+    assert_eq!(res.unwrap(), 100_i32);
+}
+
+#[tokio::test]
+async fn num_y_fail_no_roi() {
+    //given
+    let mock = MockCamera::new();
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
+    //when
+    let res = camera.num_y().await;
+    //then
+    assert!(res.is_err());
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::VALUE_NOT_SET.to_string()
+    )
+}
+
+#[tokio::test]
+async fn num_y_fail_not_connected() {
+    //given
+    let mock = MockCamera::new();
+    let camera = new_camera(mock, MockCameraType::IsOpenFalse { times: 1 });
+    //when
+    let res = camera.num_y().await;
+    //then
+    assert!(res.is_err());
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::NOT_CONNECTED.to_string(),
+    )
+}
+
+#[tokio::test]
+async fn set_num_y_success() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_set_roi()
+        .once()
+        .withf(|roi| {
+            *roi == CCDChipArea {
+                start_x: 0,
+                start_y: 0,
+                width: 10,
+                height: 100,
+            }
+        })
+        .returning(|_| Ok(()));
+    let camera = new_camera(
+        mock,
+        MockCameraType::WithRoi {
+            camera_roi: CCDChipArea {
+                start_x: 0,
+                start_y: 0,
+                width: 10,
+                height: 10,
+            },
+        },
+    );
+    //when
+    let res = camera.set_num_y(100).await;
+    //then
+    assert!(res.is_ok());
+    assert_eq!(
+        *camera.roi.read().await,
+        Some(CCDChipArea {
+            start_x: 0,
+            start_y: 0,
+            width: 10,
+            height: 100,
+        })
+    );
+}
+
+#[tokio::test]
+async fn set_num_y_fail_value_too_small() {
+    //given
+    let mock = MockCamera::new();
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 0 });
+    //when
+    let res = camera.set_num_y(-1).await;
+    //then
+    assert!(res.is_err());
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::invalid_value("num_y must be >= 0").to_string()
+    )
+}
+
+#[tokio::test]
+async fn set_num_y_fail_no_roi() {
+    //given
+    let mock = MockCamera::new();
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
+    //when
+    let res = camera.set_num_y(100).await;
+    //then
+    assert!(res.is_err());
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::VALUE_NOT_SET.to_string(),
+    )
+}
+
+#[tokio::test]
+async fn set_num_y_fail_not_connected() {
+    //given
+    let mock = MockCamera::new();
+    let camera = new_camera(mock, MockCameraType::IsOpenFalse { times: 1 });
+    //when
+    let res = camera.set_num_y(100).await;
+    //then
+    assert!(res.is_err());
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::NOT_CONNECTED.to_string(),
     )
 }
