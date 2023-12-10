@@ -10,7 +10,7 @@ enum MockCameraType {
     IsOpenFalse { times: usize },
     WithRoi { camera_roi: CCDChipArea },
     Untouched,
-    Exposing,
+    Exposing { expected_duration: f64 },
     WithImage { image_array: ImageArray },
     WithLastExposureStart { start_time: SystemTime },
     WithLastExposureDuration { duration_us: f64 },
@@ -34,11 +34,11 @@ fn new_camera(mut device: MockCamera, variant: MockCameraType) -> QhyccdCamera {
             roi = RwLock::new(Some(camera_roi));
         }
         MockCameraType::Untouched => {}
-        MockCameraType::Exposing => {
+        MockCameraType::Exposing { expected_duration } => {
             device.expect_is_open().times(1).returning(|| Ok(true));
             exposing = RwLock::new(ExposingState::Exposing {
                 start: SystemTime::UNIX_EPOCH,
-                expected_duration_us: 10000_f64,
+                expected_duration_us: expected_duration as u32,
                 stop_tx: None,
                 done_rx: watch::channel(false).1,
             });
@@ -53,7 +53,7 @@ fn new_camera(mut device: MockCamera, variant: MockCameraType) -> QhyccdCamera {
         }
         MockCameraType::WithLastExposureDuration { duration_us } => {
             device.expect_is_open().times(1).returning(|| Ok(true));
-            last_exposure_duration_us = RwLock::new(Some(duration_us));
+            last_exposure_duration_us = RwLock::new(Some(duration_us as u32));
         }
     }
     QhyccdCamera {
@@ -197,7 +197,12 @@ async fn camrea_state_success() {
 async fn camera_state_success_exposing() {
     //given
     let mock = MockCamera::new();
-    let camera = new_camera(mock, MockCameraType::Exposing);
+    let camera = new_camera(
+        mock,
+        MockCameraType::Exposing {
+            expected_duration: 10000_f64,
+        },
+    );
     //when
     let res = camera.camera_state().await;
     //then
@@ -1711,4 +1716,89 @@ async fn set_num_y_fail_not_connected() {
         res.err().unwrap().to_string(),
         ASCOMError::NOT_CONNECTED.to_string(),
     )
+}
+
+#[tokio::test]
+async fn set_num_y_fail_set_roi() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_set_roi()
+        .once()
+        .withf(|roi| {
+            *roi == CCDChipArea {
+                start_x: 0,
+                start_y: 0,
+                width: 10,
+                height: 100,
+            }
+        })
+        .returning(|_| Err(eyre!(qhyccd_rs::QHYError::SetRoiError { error_code: 123 })));
+    let camera = new_camera(
+        mock,
+        MockCameraType::WithRoi {
+            camera_roi: CCDChipArea {
+                start_x: 0,
+                start_y: 0,
+                width: 10,
+                height: 10,
+            },
+        },
+    );
+    //when
+    let res = camera.set_num_y(100).await;
+    //then
+    assert!(res.is_err());
+    assert_eq!(
+        *camera.roi.read().await,
+        Some(CCDChipArea {
+            start_x: 0,
+            start_y: 0,
+            width: 10,
+            height: 10,
+        })
+    );
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::VALUE_NOT_SET.to_string(),
+    )
+}
+
+#[tokio::test]
+async fn percent_completed_success() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_get_remaining_exposure_us()
+        .once()
+        .returning(|| Ok(5000_u32));
+    let camera = new_camera(
+        mock,
+        MockCameraType::Exposing {
+            expected_duration: 10000_f64,
+        },
+    );
+    //when
+    let res = camera.percent_completed().await;
+    //then
+    assert!(res.is_ok());
+    assert_eq!(res.unwrap(), 50_i32);
+}
+
+#[tokio::test]
+async fn percent_completed_fail_over_9000() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_get_remaining_exposure_us()
+        .once()
+        .returning(|| Ok(0));
+    let camera = new_camera(
+        mock,
+        MockCameraType::Exposing {
+            expected_duration: 0_f64,
+        },
+    );
+    //when
+    let res = camera.percent_completed().await;
+    //then
+    assert!(res.is_ok());
+    assert_eq!(res.unwrap(), 50_i32);
 }

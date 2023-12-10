@@ -34,7 +34,7 @@ enum ExposingState {
     Idle,
     Exposing {
         start: SystemTime,
-        expected_duration_us: f64,
+        expected_duration_us: u32,
         #[educe(PartialEq(ignore))]
         stop_tx: Option<oneshot::Sender<StopExposure>>,
         #[educe(PartialEq(ignore))]
@@ -62,7 +62,7 @@ struct QhyccdCamera {
     valid_bins: RwLock<Option<Vec<BinningMode>>>,
     roi: RwLock<Option<qhyccd_rs::CCDChipArea>>,
     last_exposure_start_time: RwLock<Option<SystemTime>>,
-    last_exposure_duration_us: RwLock<Option<f64>>,
+    last_exposure_duration_us: RwLock<Option<u32>>,
     last_image: RwLock<Option<ImageArray>>,
     exposing: RwLock<ExposingState>,
 }
@@ -371,7 +371,7 @@ impl Camera for QhyccdCamera {
     async fn last_exposure_duration(&self) -> ASCOMResult<f64> {
         match self.connected().await {
             Ok(true) => match *self.last_exposure_duration_us.read().await {
-                Some(duration) => Ok(duration),
+                Some(duration) => Ok(duration as f64),
                 None => Err(ASCOMError::VALUE_NOT_SET),
             },
             _ => {
@@ -605,7 +605,9 @@ impl Camera for QhyccdCamera {
                     expected_duration_us,
                     ..
                 } => match self.device.get_remaining_exposure_us() {
-                    Ok(remaining) => Ok(remaining as i32 / expected_duration_us as i32),
+                    Ok(remaining) => {
+                        Ok((100_f64 * remaining as f64 / expected_duration_us as f64) as i32)
+                    }
                     Err(e) => {
                         error!(?e, "get_remaining_exposure_us failed");
                         Err(ASCOMError::UNSPECIFIED)
@@ -693,7 +695,7 @@ impl Camera for QhyccdCamera {
         }
         match self.connected().await {
             Ok(true) => {
-                let exposure_us = duration * 1_000_000.0;
+                let exposure_us = (duration * 1_000_000 as f64) as u32;
 
                 let (stop_tx, stop_rx) = oneshot::channel::<StopExposure>();
                 let (done_tx, done_rx) = watch::channel(false);
@@ -710,7 +712,7 @@ impl Camera for QhyccdCamera {
 
                 match self
                     .device
-                    .set_parameter(qhyccd_rs::Control::Exposure, exposure_us)
+                    .set_parameter(qhyccd_rs::Control::Exposure, exposure_us as f64)
                 {
                     Ok(_) => {}
                     Err(e) => {
