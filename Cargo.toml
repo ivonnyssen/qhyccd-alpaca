@@ -33,7 +33,7 @@ tokio = { version = "1.33.0", features = ["rt-multi-thread", "macros"] }
 tracing = "0.1.40"
 tracing-subscriber = "0.3.17"
 cfg-if = "1.0.0"
-educe = "0.4.23"
+educe = "0.5.4"
 
 # to make ascom-alpaca happy
 mediatype = "0.19.16"
