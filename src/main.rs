@@ -1,3 +1,4 @@
+#![warn(clippy::integer_division)]
 use std::time::SystemTime;
 use tokio::sync::RwLock;
 
@@ -606,7 +607,12 @@ impl Camera for QhyccdCamera {
                     ..
                 } => match self.device.get_remaining_exposure_us() {
                     Ok(remaining) => {
-                        Ok((100_f64 * remaining as f64 / expected_duration_us as f64) as i32)
+                        let res = (100_f64 * remaining as f64 / expected_duration_us as f64) as i32;
+                        if res > 100_i32 {
+                            Ok(100_i32)
+                        } else {
+                            Ok(res)
+                        }
                     }
                     Err(e) => {
                         error!(?e, "get_remaining_exposure_us failed");
