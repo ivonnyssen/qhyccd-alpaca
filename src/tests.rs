@@ -2017,16 +2017,20 @@ async fn sensor_type_success_monochrome() {
     assert_eq!(res.unwrap(), SensorType::Monochrome);
 }
 
+//TODO: apply to all not_connected functions and check it actually works
+macro_rules! not_connected {
+    ($var:ident) => {
+        let mock = MockCamera::new();
+        let camera = new_camera(mock, MockCameraType::IsOpenFalse { times: 1 });
+        let res = camera.$var().await;
+        assert_eq!(
+            res.err().unwrap().to_string(),
+            ASCOMError::NOT_CONNECTED.to_string(),
+        )
+    };
+}
+
 #[tokio::test]
-async fn sensrot_type_fail_not_connected() {
-    //given
-    let mock = MockCamera::new();
-    let camera = new_camera(mock, MockCameraType::IsOpenFalse { times: 1 });
-    //when
-    let res = camera.sensor_type().await;
-    //then
-    assert_eq!(
-        res.err().unwrap().to_string(),
-        ASCOMError::NOT_CONNECTED.to_string(),
-    )
+async fn not_connected_asyncs() {
+    not_connected!(sensor_type);
 }
