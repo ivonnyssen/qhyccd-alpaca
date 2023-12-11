@@ -1986,3 +1986,47 @@ async fn readout_modes_fail_not_connected() {
         ASCOMError::NOT_CONNECTED.to_string(),
     )
 }
+
+#[tokio::test]
+async fn sensor_type_success_color() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_is_control_available()
+        .once()
+        .withf(|control| *control == qhyccd_rs::Control::CamIsColor)
+        .returning(|_| Ok(0)); //TODO: decide whether to export QHYCCD_SUCCESS
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
+    //when
+    let res = camera.sensor_type().await;
+    //then
+    assert_eq!(res.unwrap(), SensorType::Color);
+}
+
+#[tokio::test]
+async fn sensor_type_success_monochrome() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_is_control_available()
+        .once()
+        .withf(|control| *control == qhyccd_rs::Control::CamIsColor)
+        .returning(|_| Err(eyre!(std::u32::MAX))); //TODO: decide whether to export QHYCCD_ERROR
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
+    //when
+    let res = camera.sensor_type().await;
+    //then
+    assert_eq!(res.unwrap(), SensorType::Monochrome);
+}
+
+#[tokio::test]
+async fn sensrot_type_fail_not_connected() {
+    //given
+    let mock = MockCamera::new();
+    let camera = new_camera(mock, MockCameraType::IsOpenFalse { times: 1 });
+    //when
+    let res = camera.sensor_type().await;
+    //then
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::NOT_CONNECTED.to_string(),
+    )
+}
