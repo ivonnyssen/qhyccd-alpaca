@@ -28,6 +28,24 @@ async fn not_connected_asyncs() {
     not_connected! {bin_y()}
     not_connected! {set_bin_x(1)}
     not_connected! {set_bin_y(1)}
+    not_connected! {has_shutter()}
+    not_connected! {image_array()}
+    not_connected! {image_ready()}
+    not_connected! {last_exposure_start_time()}
+    not_connected! {last_exposure_duration()}
+    not_connected! {camera_xsize()}
+    not_connected! {camera_ysize()}
+    not_connected! {start_x()}
+    not_connected! {set_start_x(100)}
+    not_connected! {start_y()}
+    not_connected! {set_start_y(100)}
+    not_connected! {num_x()}
+    not_connected! {set_num_x(100)}
+    not_connected! {num_y()}
+    not_connected! {set_num_y(100)}
+    not_connected! {readout_mode()}
+    not_connected! {set_readout_mode(1)}
+    not_connected! {readout_modes()}
 }
 
 enum MockCameraType {
@@ -633,21 +651,6 @@ async fn has_shutter_false_success() {
 }
 
 #[tokio::test]
-async fn has_shutter_fail_not_connected() {
-    //given
-    let mock = MockCamera::new();
-    let camera = new_camera(mock, MockCameraType::IsOpenFalse { times: 1 });
-    //when
-    let res = camera.has_shutter().await;
-    //then
-    assert!(res.is_err());
-    assert_eq!(
-        res.err().unwrap().to_string(),
-        ASCOMError::NOT_CONNECTED.to_string()
-    );
-}
-
-#[tokio::test]
 async fn image_array_success() {
     //given
     let mock = MockCamera::new();
@@ -676,21 +679,6 @@ async fn image_array_empty() {
     assert_eq!(
         res.err().unwrap().to_string(),
         ASCOMError::VALUE_NOT_SET.to_string()
-    );
-}
-
-#[tokio::test]
-async fn image_array_fail_not_connected() {
-    //given
-    let mock = MockCamera::new();
-    let camera = new_camera(mock, MockCameraType::IsOpenFalse { times: 1 });
-    //when
-    let res = camera.image_array().await;
-    //then
-    assert!(res.is_err());
-    assert_eq!(
-        res.err().unwrap().to_string(),
-        ASCOMError::NOT_CONNECTED.to_string()
     );
 }
 
@@ -743,21 +731,6 @@ async fn image_ready_fail_get_remaining_exposure_us() {
 }
 
 #[tokio::test]
-async fn image_ready_fail_not_connected() {
-    //given
-    let mock = MockCamera::new();
-    let camera = new_camera(mock, MockCameraType::IsOpenFalse { times: 1 });
-    //when
-    let res = camera.image_ready().await;
-    //then
-    assert!(res.is_err());
-    assert_eq!(
-        res.err().unwrap().to_string(),
-        ASCOMError::NOT_CONNECTED.to_string()
-    )
-}
-
-#[tokio::test]
 async fn last_exposure_start_time_success() {
     //given
     let mock = MockCamera::new();
@@ -790,21 +763,6 @@ async fn last_exposure_start_time_fail_not_set() {
 }
 
 #[tokio::test]
-async fn last_exposure_start_time_fail_not_connected() {
-    //given
-    let mock = MockCamera::new();
-    let camera = new_camera(mock, MockCameraType::IsOpenFalse { times: 1 });
-    //when
-    let res = camera.last_exposure_start_time().await;
-    //then
-    assert!(res.is_err());
-    assert_eq!(
-        res.err().unwrap().to_string(),
-        ASCOMError::NOT_CONNECTED.to_string()
-    )
-}
-
-#[tokio::test]
 async fn last_exposure_duration_fail_success() {
     //given
     let mock = MockCamera::new();
@@ -834,21 +792,6 @@ async fn last_exposure_duration_fail_not_set() {
         res.err().unwrap().to_string(),
         ASCOMError::VALUE_NOT_SET.to_string()
     );
-}
-
-#[tokio::test]
-async fn last_exposure_duration_fail_not_connected() {
-    //given
-    let mock = MockCamera::new();
-    let camera = new_camera(mock, MockCameraType::IsOpenFalse { times: 1 });
-    //when
-    let res = camera.last_exposure_duration().await;
-    //then
-    assert!(res.is_err());
-    assert_eq!(
-        res.err().unwrap().to_string(),
-        ASCOMError::NOT_CONNECTED.to_string()
-    )
 }
 
 #[tokio::test]
@@ -885,21 +828,6 @@ async fn camera_xsize_fail_no_roi() {
     assert_eq!(
         res.err().unwrap().to_string(),
         ASCOMError::VALUE_NOT_SET.to_string()
-    )
-}
-
-#[tokio::test]
-async fn camera_xsize_fail_not_connected() {
-    //given
-    let mock = MockCamera::new();
-    let camera = new_camera(mock, MockCameraType::IsOpenFalse { times: 1 });
-    //when
-    let res = camera.camera_xsize().await;
-    //then
-    assert!(res.is_err());
-    assert_eq!(
-        res.err().unwrap().to_string(),
-        ASCOMError::NOT_CONNECTED.to_string()
     )
 }
 
@@ -941,21 +869,6 @@ async fn camera_ysize_fail_no_roi() {
 }
 
 #[tokio::test]
-async fn camera_ysize_fail_not_connected() {
-    //given
-    let mock = MockCamera::new();
-    let camera = new_camera(mock, MockCameraType::IsOpenFalse { times: 1 });
-    //when
-    let res = camera.camera_ysize().await;
-    //then
-    assert!(res.is_err());
-    assert_eq!(
-        res.err().unwrap().to_string(),
-        ASCOMError::NOT_CONNECTED.to_string()
-    )
-}
-
-#[tokio::test]
 async fn start_x_success() {
     //given
     let mock = MockCamera::new();
@@ -989,21 +902,6 @@ async fn camera_start_x_fail_no_roi() {
     assert_eq!(
         res.err().unwrap().to_string(),
         ASCOMError::VALUE_NOT_SET.to_string()
-    )
-}
-
-#[tokio::test]
-async fn start_x_fail_not_connected() {
-    //given
-    let mock = MockCamera::new();
-    let camera = new_camera(mock, MockCameraType::IsOpenFalse { times: 1 });
-    //when
-    let res = camera.start_x().await;
-    //then
-    assert!(res.is_err());
-    assert_eq!(
-        res.err().unwrap().to_string(),
-        ASCOMError::NOT_CONNECTED.to_string()
     )
 }
 
@@ -1124,21 +1022,6 @@ async fn set_start_x_fail_set_roi() {
 }
 
 #[tokio::test]
-async fn set_start_x_fail_not_connected() {
-    //given
-    let mock = MockCamera::new();
-    let camera = new_camera(mock, MockCameraType::IsOpenFalse { times: 1 });
-    //when
-    let res = camera.set_start_x(100).await;
-    //then
-    assert!(res.is_err());
-    assert_eq!(
-        res.err().unwrap().to_string(),
-        ASCOMError::NOT_CONNECTED.to_string()
-    )
-}
-
-#[tokio::test]
 async fn start_y_success() {
     //given
     let mock = MockCamera::new();
@@ -1172,21 +1055,6 @@ async fn start_y_fail_no_roi() {
     assert_eq!(
         res.err().unwrap().to_string(),
         ASCOMError::VALUE_NOT_SET.to_string()
-    )
-}
-
-#[tokio::test]
-async fn start_y_fail_not_connected() {
-    //given
-    let mock = MockCamera::new();
-    let camera = new_camera(mock, MockCameraType::IsOpenFalse { times: 1 });
-    //when
-    let res = camera.start_y().await;
-    //then
-    assert!(res.is_err());
-    assert_eq!(
-        res.err().unwrap().to_string(),
-        ASCOMError::NOT_CONNECTED.to_string()
     )
 }
 
@@ -1307,21 +1175,6 @@ async fn set_start_y_fail_set_roi() {
 }
 
 #[tokio::test]
-async fn set_start_y_fail_not_connected() {
-    //given
-    let mock = MockCamera::new();
-    let camera = new_camera(mock, MockCameraType::IsOpenFalse { times: 1 });
-    //when
-    let res = camera.set_start_y(100).await;
-    //then
-    assert!(res.is_err());
-    assert_eq!(
-        res.err().unwrap().to_string(),
-        ASCOMError::NOT_CONNECTED.to_string()
-    )
-}
-
-#[tokio::test]
 async fn num_x_success() {
     //given
     let mock = MockCamera::new();
@@ -1355,21 +1208,6 @@ async fn num_x_fail_no_roi() {
     assert_eq!(
         res.err().unwrap().to_string(),
         ASCOMError::VALUE_NOT_SET.to_string()
-    )
-}
-
-#[tokio::test]
-async fn num_x_fail_not_connected() {
-    //given
-    let mock = MockCamera::new();
-    let camera = new_camera(mock, MockCameraType::IsOpenFalse { times: 1 });
-    //when
-    let res = camera.num_x().await;
-    //then
-    assert!(res.is_err());
-    assert_eq!(
-        res.err().unwrap().to_string(),
-        ASCOMError::NOT_CONNECTED.to_string()
     )
 }
 
@@ -1490,21 +1328,6 @@ async fn set_num_x_fail_set_roi() {
 }
 
 #[tokio::test]
-async fn set_num_x_fail_not_connected() {
-    //given
-    let mock = MockCamera::new();
-    let camera = new_camera(mock, MockCameraType::IsOpenFalse { times: 1 });
-    //when
-    let res = camera.set_num_x(100).await;
-    //then
-    assert!(res.is_err());
-    assert_eq!(
-        res.err().unwrap().to_string(),
-        ASCOMError::NOT_CONNECTED.to_string()
-    )
-}
-
-#[tokio::test]
 async fn num_y_success() {
     //given
     let mock = MockCamera::new();
@@ -1538,21 +1361,6 @@ async fn num_y_fail_no_roi() {
     assert_eq!(
         res.err().unwrap().to_string(),
         ASCOMError::VALUE_NOT_SET.to_string()
-    )
-}
-
-#[tokio::test]
-async fn num_y_fail_not_connected() {
-    //given
-    let mock = MockCamera::new();
-    let camera = new_camera(mock, MockCameraType::IsOpenFalse { times: 1 });
-    //when
-    let res = camera.num_y().await;
-    //then
-    assert!(res.is_err());
-    assert_eq!(
-        res.err().unwrap().to_string(),
-        ASCOMError::NOT_CONNECTED.to_string(),
     )
 }
 
@@ -1624,21 +1432,6 @@ async fn set_num_y_fail_no_roi() {
     assert_eq!(
         res.err().unwrap().to_string(),
         ASCOMError::VALUE_NOT_SET.to_string(),
-    )
-}
-
-#[tokio::test]
-async fn set_num_y_fail_not_connected() {
-    //given
-    let mock = MockCamera::new();
-    let camera = new_camera(mock, MockCameraType::IsOpenFalse { times: 1 });
-    //when
-    let res = camera.set_num_y(100).await;
-    //then
-    assert!(res.is_err());
-    assert_eq!(
-        res.err().unwrap().to_string(),
-        ASCOMError::NOT_CONNECTED.to_string(),
     )
 }
 
@@ -1777,20 +1570,6 @@ async fn readout_mode_fail_get_readout_mode() {
 }
 
 #[tokio::test]
-async fn readout_mode_fail_not_connected() {
-    //given
-    let mock = MockCamera::new();
-    let camera = new_camera(mock, MockCameraType::IsOpenFalse { times: 1 });
-    //when
-    let res = camera.readout_mode().await;
-    //then
-    assert_eq!(
-        res.err().unwrap().to_string(),
-        ASCOMError::NOT_CONNECTED.to_string(),
-    )
-}
-
-#[tokio::test]
 async fn set_readout_mode_success() {
     //given
     let mut mock = MockCamera::new();
@@ -1824,20 +1603,6 @@ async fn set_readout_mode_fail_set_readout_mode() {
     assert_eq!(
         res.err().unwrap().to_string(),
         ASCOMError::VALUE_NOT_SET.to_string(),
-    )
-}
-
-#[tokio::test]
-async fn set_readout_mode_fail_not_connected() {
-    //given
-    let mock = MockCamera::new();
-    let camera = new_camera(mock, MockCameraType::IsOpenFalse { times: 1 });
-    //when
-    let res = camera.set_readout_mode(3).await;
-    //then
-    assert_eq!(
-        res.err().unwrap().to_string(),
-        ASCOMError::NOT_CONNECTED.to_string(),
     )
 }
 
@@ -1894,20 +1659,6 @@ async fn readout_modes_fail_get_readout_mode_name() {
     assert_eq!(
         res.err().unwrap().to_string(),
         ASCOMError::UNSPECIFIED.to_string(),
-    )
-}
-
-#[tokio::test]
-async fn readout_modes_fail_not_connected() {
-    //given
-    let mock = MockCamera::new();
-    let camera = new_camera(mock, MockCameraType::IsOpenFalse { times: 1 });
-    //when
-    let res = camera.readout_modes().await;
-    //then
-    assert_eq!(
-        res.err().unwrap().to_string(),
-        ASCOMError::NOT_CONNECTED.to_string(),
     )
 }
 
