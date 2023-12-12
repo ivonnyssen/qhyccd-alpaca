@@ -172,12 +172,12 @@ async fn max_bin_x_success() {
                 || control == &Control::CamBin8x8mode
         })
         .returning(|control| match control {
-            Control::CamBin1x1mode => Ok(0_u32),
-            Control::CamBin2x2mode => Ok(0_u32),
-            Control::CamBin3x3mode => Ok(0_u32),
-            Control::CamBin4x4mode => Ok(0_u32),
-            Control::CamBin6x6mode => Ok(0_u32),
-            Control::CamBin8x8mode => Ok(0_u32),
+            Control::CamBin1x1mode => Some(0_u32),
+            Control::CamBin2x2mode => Some(0_u32),
+            Control::CamBin3x3mode => Some(0_u32),
+            Control::CamBin4x4mode => Some(0_u32),
+            Control::CamBin6x6mode => Some(0_u32),
+            Control::CamBin8x8mode => Some(0_u32),
             _ => panic!("Unexpected control"),
         });
     //when
@@ -201,11 +201,7 @@ async fn max_bin_x_fail_no_modes() {
                 || control == &Control::CamBin6x6mode
                 || control == &Control::CamBin8x8mode
         })
-        .returning(|control| {
-            Err(eyre!(qhyccd_rs::QHYError::IsControlAvailableError {
-                feature: control
-            }))
-        });
+        .returning(|_| None);
     //when
     let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 2 });
     //then
@@ -304,12 +300,12 @@ async fn set_connected_true_success() {
                 || control == &Control::CamBin8x8mode
         })
         .returning(|control| match control {
-            Control::CamBin1x1mode => Ok(0_u32),
-            Control::CamBin2x2mode => Ok(0_u32),
-            Control::CamBin3x3mode => Ok(0_u32),
-            Control::CamBin4x4mode => Ok(0_u32),
-            Control::CamBin6x6mode => Ok(0_u32),
-            Control::CamBin8x8mode => Ok(0_u32),
+            Control::CamBin1x1mode => Some(0_u32),
+            Control::CamBin2x2mode => Some(0_u32),
+            Control::CamBin3x3mode => Some(0_u32),
+            Control::CamBin4x4mode => Some(0_u32),
+            Control::CamBin6x6mode => Some(0_u32),
+            Control::CamBin8x8mode => Some(0_u32),
             _ => panic!("Unexpected control"),
         });
     let camera = new_camera(mock, MockCameraType::IsOpenFalse { times: 1 });
@@ -366,12 +362,12 @@ async fn set_connected_fail_get_effective_area() {
                 || control == &Control::CamBin8x8mode
         })
         .returning(|control| match control {
-            Control::CamBin1x1mode => Ok(0_u32),
-            Control::CamBin2x2mode => Ok(0_u32),
-            Control::CamBin3x3mode => Ok(0_u32),
-            Control::CamBin4x4mode => Ok(0_u32),
-            Control::CamBin6x6mode => Ok(0_u32),
-            Control::CamBin8x8mode => Ok(0_u32),
+            Control::CamBin1x1mode => Some(0_u32),
+            Control::CamBin2x2mode => Some(0_u32),
+            Control::CamBin3x3mode => Some(0_u32),
+            Control::CamBin4x4mode => Some(0_u32),
+            Control::CamBin6x6mode => Some(0_u32),
+            Control::CamBin8x8mode => Some(0_u32),
             _ => panic!("Unexpected control"),
         });
     let camera = new_camera(mock, MockCameraType::IsOpenFalse { times: 1 });
@@ -621,7 +617,7 @@ async fn has_shutter_true_success() {
     mock.expect_is_control_available()
         .once()
         .withf(|control| *control == qhyccd_rs::Control::CamMechanicalShutter)
-        .returning(|_| Ok(0_u32));
+        .returning(|_| Some(0_u32));
     let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
     //when
     let res = camera.has_shutter().await;
@@ -637,11 +633,7 @@ async fn has_shutter_false_success() {
     mock.expect_is_control_available()
         .once()
         .withf(|control| *control == qhyccd_rs::Control::CamMechanicalShutter)
-        .returning(|_| {
-            Err(eyre!(qhyccd_rs::QHYError::IsControlAvailableError {
-                feature: qhyccd_rs::Control::CamMechanicalShutter
-            }))
-        });
+        .returning(|_| None);
     let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
     //when
     let res = camera.has_shutter().await;
@@ -1669,7 +1661,7 @@ async fn sensor_type_success_color() {
     mock.expect_is_control_available()
         .once()
         .withf(|control| *control == qhyccd_rs::Control::CamIsColor)
-        .returning(|_| Ok(0)); //TODO: decide whether to export QHYCCD_SUCCESS
+        .returning(|_| Some(0));
     let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
     //when
     let res = camera.sensor_type().await;
@@ -1684,7 +1676,7 @@ async fn sensor_type_success_monochrome() {
     mock.expect_is_control_available()
         .once()
         .withf(|control| *control == qhyccd_rs::Control::CamIsColor)
-        .returning(|_| Err(eyre!(std::u32::MAX))); //TODO: decide whether to export QHYCCD_ERROR
+        .returning(|_| None);
     let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
     //when
     let res = camera.sensor_type().await;

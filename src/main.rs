@@ -74,42 +74,42 @@ impl QhyccdCamera {
         if self
             .device
             .is_control_available(qhyccd_rs::Control::CamBin1x1mode)
-            .is_ok()
+            .is_some()
         {
             valid_binning_modes.push(BinningMode { symmetric_value: 1 });
         }
         if self
             .device
             .is_control_available(qhyccd_rs::Control::CamBin2x2mode)
-            .is_ok()
+            .is_some()
         {
             valid_binning_modes.push(BinningMode { symmetric_value: 2 });
         }
         if self
             .device
             .is_control_available(qhyccd_rs::Control::CamBin3x3mode)
-            .is_ok()
+            .is_some()
         {
             valid_binning_modes.push(BinningMode { symmetric_value: 3 });
         }
         if self
             .device
             .is_control_available(qhyccd_rs::Control::CamBin4x4mode)
-            .is_ok()
+            .is_some()
         {
             valid_binning_modes.push(BinningMode { symmetric_value: 4 });
         }
         if self
             .device
             .is_control_available(qhyccd_rs::Control::CamBin6x6mode)
-            .is_ok()
+            .is_some()
         {
             valid_binning_modes.push(BinningMode { symmetric_value: 6 });
         }
         if self
             .device
             .is_control_available(qhyccd_rs::Control::CamBin8x8mode)
-            .is_ok()
+            .is_some()
         {
             valid_binning_modes.push(BinningMode { symmetric_value: 8 });
         }
@@ -314,9 +314,9 @@ impl Camera for QhyccdCamera {
                 .device
                 .is_control_available(qhyccd_rs::Control::CamMechanicalShutter)
             {
-                Ok(_) => Ok(true),
-                Err(e) => {
-                    debug!(?e, "is_control_available failed for CamMechanicalShutter");
+                Some(_) => Ok(true),
+                None => {
+                    debug!("no mechanical shutter");
                     Ok(false)
                 }
             },
@@ -682,8 +682,8 @@ impl Camera for QhyccdCamera {
                 .device
                 .is_control_available(qhyccd_rs::Control::CamIsColor)
             {
-                Ok(_) => Ok(SensorType::Color),
-                Err(_) => Ok(SensorType::Monochrome),
+                Some(_) => Ok(SensorType::Color),
+                None => Ok(SensorType::Monochrome),
             },
             _ => {
                 error!("camera not connected");
