@@ -730,7 +730,7 @@ async fn image_array_success() {
     let camera = new_camera(
         mock,
         MockCameraType::WithImage {
-            image_array: Array3::<u16>::zeros((10 as usize, 10 as usize, 3)).into(),
+            image_array: Array3::<u16>::zeros((10_usize, 10_usize, 3)).into(),
         },
     );
     //when
@@ -2033,4 +2033,6 @@ macro_rules! not_connected {
 #[tokio::test]
 async fn not_connected_asyncs() {
     not_connected!(sensor_type);
+    not_connected!(max_bin_x);
+    not_connected!(max_bin_y);
 }

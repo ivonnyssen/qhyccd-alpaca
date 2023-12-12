@@ -701,7 +701,7 @@ impl Camera for QhyccdCamera {
         }
         match self.connected().await {
             Ok(true) => {
-                let exposure_us = (duration * 1_000_000 as f64) as u32;
+                let exposure_us = (duration * 1_000_000_f64) as u32;
 
                 let (stop_tx, stop_rx) = oneshot::channel::<StopExposure>();
                 let (done_tx, done_rx) = watch::channel(false);
