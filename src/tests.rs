@@ -6,15 +6,28 @@ use eyre::eyre;
 use ndarray::Array3;
 
 macro_rules! not_connected {
-    ($var:ident) => {
+    ($name:ident$tail:tt) => {
         let mock = MockCamera::new();
         let camera = new_camera(mock, MockCameraType::IsOpenFalse { times: 1 });
-        let res = camera.$var().await;
+        let res = camera.$name$tail.await;
         assert_eq!(
             res.err().unwrap().to_string(),
             ASCOMError::NOT_CONNECTED.to_string(),
-        )
+        );
     };
+}
+
+#[tokio::test]
+async fn not_connected_asyncs() {
+    not_connected! {sensor_type()}
+    not_connected! {max_bin_x()}
+    not_connected! {max_bin_y()}
+    not_connected! {sensor_name()}
+    not_connected! {camera_state()}
+    not_connected! {bin_x()}
+    not_connected! {bin_y()}
+    not_connected! {set_bin_x(1)}
+    not_connected! {set_bin_y(1)}
 }
 
 enum MockCameraType {
@@ -209,21 +222,6 @@ async fn camera_state_success_exposing() {
     //then
     assert!(res.is_ok());
     assert_eq!(res.unwrap(), CameraState::Exposing);
-}
-
-#[tokio::test]
-async fn camera_state_fail_not_connected() {
-    //given
-    let mock = MockCamera::new();
-    let camera = new_camera(mock, MockCameraType::IsOpenFalse { times: 1 });
-    //when
-    let res = camera.camera_state().await;
-    //then
-    assert!(res.is_err());
-    assert_eq!(
-        res.err().unwrap().to_string(),
-        ASCOMError::NOT_CONNECTED.to_string()
-    )
 }
 
 #[tokio::test]
@@ -464,36 +462,6 @@ async fn bin_y_success() {
 }
 
 #[tokio::test]
-async fn bin_x_fail_not_connected() {
-    //given
-    let mock = MockCamera::new();
-    let camera = new_camera(mock, MockCameraType::IsOpenFalse { times: 1 });
-    //when
-    let res = camera.bin_x().await;
-    //then
-    assert!(res.is_err());
-    assert_eq!(
-        res.err().unwrap().to_string(),
-        ASCOMError::NOT_CONNECTED.to_string()
-    );
-}
-
-#[tokio::test]
-async fn bin_y_fail_not_connected() {
-    //given
-    let mock = MockCamera::new();
-    let camera = new_camera(mock, MockCameraType::IsOpenFalse { times: 1 });
-    //when
-    let res = camera.bin_y().await;
-    //then
-    assert!(res.is_err());
-    assert_eq!(
-        res.err().unwrap().to_string(),
-        ASCOMError::NOT_CONNECTED.to_string()
-    );
-}
-
-#[tokio::test]
 async fn set_bin_x_success() {
     //given
     let mut mock = MockCamera::new();
@@ -521,36 +489,6 @@ async fn set_bin_y_success() {
     let res = camera.set_bin_y(1).await;
     //then
     assert!(res.is_ok());
-}
-
-#[tokio::test]
-async fn set_bin_x_fail_not_connected() {
-    //given
-    let mock = MockCamera::new();
-    let camera = new_camera(mock, MockCameraType::IsOpenFalse { times: 1 });
-    //when
-    let res = camera.set_bin_x(1).await;
-    //then
-    assert!(res.is_err());
-    assert_eq!(
-        res.err().unwrap().to_string(),
-        ASCOMError::NOT_CONNECTED.to_string()
-    );
-}
-
-#[tokio::test]
-async fn set_bin_y_fail_not_connected() {
-    //given
-    let mock = MockCamera::new();
-    let camera = new_camera(mock, MockCameraType::IsOpenFalse { times: 1 });
-    //when
-    let res = camera.set_bin_y(1).await;
-    //then
-    assert!(res.is_err());
-    assert_eq!(
-        res.err().unwrap().to_string(),
-        ASCOMError::NOT_CONNECTED.to_string()
-    );
 }
 
 #[tokio::test]
@@ -2001,12 +1939,4 @@ async fn sensor_type_success_monochrome() {
     let res = camera.sensor_type().await;
     //then
     assert_eq!(res.unwrap(), SensorType::Monochrome);
-}
-
-#[tokio::test]
-async fn not_connected_asyncs() {
-    not_connected!(sensor_type);
-    not_connected!(max_bin_x);
-    not_connected!(max_bin_y);
-    not_connected!(sensor_name);
 }
