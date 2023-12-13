@@ -5,6 +5,9 @@ use tokio::sync::RwLock;
 use ascom_alpaca::api::{Camera, CameraState, CargoServerInfo, Device, ImageArray, SensorType};
 use ascom_alpaca::{ASCOMError, ASCOMResult, Server};
 use async_trait::async_trait;
+
+use ndarray::Array3;
+
 #[macro_use]
 extern crate educe;
 use cfg_if::cfg_if;
@@ -117,7 +120,8 @@ impl QhyccdCamera {
     }
 
     fn transform_image(_image: qhyccd_rs::ImageData) -> ImageArray {
-        unimplemented!("transform_image not implemented")
+        //TODO: actually implement this
+        Array3::<u16>::zeros((10_usize, 10_usize, 3)).into()
     }
 }
 
@@ -709,12 +713,20 @@ impl Camera for QhyccdCamera {
                 *self.last_exposure_start_time.write().await = Some(SystemTime::now());
                 *self.last_exposure_duration_us.write().await = Some(exposure_us);
 
-                *self.exposing.write().await = ExposingState::Exposing {
-                    expected_duration_us: exposure_us,
-                    start: SystemTime::now(),
-                    stop_tx: Some(stop_tx),
-                    done_rx,
-                };
+                {
+                    let mut lock = self.exposing.write().await;
+                    if *lock != ExposingState::Idle {
+                        error!("camera already exposing");
+                        return Err(ASCOMError::INVALID_OPERATION);
+                    } else {
+                        *lock = ExposingState::Exposing {
+                            start: SystemTime::now(),
+                            expected_duration_us: exposure_us,
+                            stop_tx: Some(stop_tx),
+                            done_rx,
+                        }
+                    };
+                }
 
                 match self
                     .device
