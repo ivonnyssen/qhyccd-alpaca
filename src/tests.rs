@@ -47,6 +47,7 @@ async fn not_connected_asyncs() {
     not_connected! {set_readout_mode(1)}
     not_connected! {readout_modes()}
     not_connected! {percent_completed()}
+    not_connected! {start_exposure(1.0, true)}
     not_connected! {stop_exposure()}
     not_connected! {abort_exposure()}
 }
