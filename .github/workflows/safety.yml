@@ -68,6 +68,6 @@ jobs:
           toolchain: ${{ env.NIGHTLY }}
           components: miri
       - name: cargo miri test
-        run: cargo miri test -- --skip start_exposure
+        run: cargo miri test -- --skip no_miri
         env:
           MIRIFLAGS: ""

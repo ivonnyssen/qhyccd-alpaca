@@ -1825,7 +1825,7 @@ async fn start_exposure_fail_dark_exposure() {
 }
 
 #[tokio::test]
-async fn start_exposure_fail_is_exposing() {
+async fn start_exposure_fail_is_exposing_no_miri() {
     //given
     let mock = MockCamera::new();
     let camera = new_camera(
@@ -1844,7 +1844,7 @@ async fn start_exposure_fail_is_exposing() {
 }
 
 #[tokio::test]
-async fn start_exposure_success() {
+async fn start_exposure_success_no_miri() {
     //given
     let mut mock = MockCamera::new();
     mock.expect_set_parameter()
