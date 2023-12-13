@@ -40,7 +40,7 @@ mock! {
         pub fn get_remaining_exposure_us(&self) -> Result<u32>;
         pub fn stop_exposure(&self) -> Result<()>;
         pub fn abort_exposure_and_readout(&self) -> Result<()>;
-        pub fn is_control_available(&self, control: Control) -> Result<u32>;
+        pub fn is_control_available(&self, control: Control) -> Option<u32>;
         pub fn get_ccd_info(&self) -> Result<CCDChipInfo>;
         pub fn set_bit_mode(&self, mode: u32) -> Result<()>;
         pub fn get_parameter(&self, control: Control) -> Result<f64>;

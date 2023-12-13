@@ -1,9 +1,13 @@
+#![warn(clippy::integer_division)]
 use std::time::SystemTime;
 use tokio::sync::RwLock;
 
 use ascom_alpaca::api::{Camera, CameraState, CargoServerInfo, Device, ImageArray, SensorType};
 use ascom_alpaca::{ASCOMError, ASCOMResult, Server};
 use async_trait::async_trait;
+
+use ndarray::Array3;
+
 #[macro_use]
 extern crate educe;
 use cfg_if::cfg_if;
@@ -34,7 +38,7 @@ enum ExposingState {
     Idle,
     Exposing {
         start: SystemTime,
-        expected_duration_us: f64,
+        expected_duration_us: u32,
         #[educe(PartialEq(ignore))]
         stop_tx: Option<oneshot::Sender<StopExposure>>,
         #[educe(PartialEq(ignore))]
@@ -62,7 +66,7 @@ struct QhyccdCamera {
     valid_bins: RwLock<Option<Vec<BinningMode>>>,
     roi: RwLock<Option<qhyccd_rs::CCDChipArea>>,
     last_exposure_start_time: RwLock<Option<SystemTime>>,
-    last_exposure_duration_us: RwLock<Option<f64>>,
+    last_exposure_duration_us: RwLock<Option<u32>>,
     last_image: RwLock<Option<ImageArray>>,
     exposing: RwLock<ExposingState>,
 }
@@ -73,42 +77,42 @@ impl QhyccdCamera {
         if self
             .device
             .is_control_available(qhyccd_rs::Control::CamBin1x1mode)
-            .is_ok()
+            .is_some()
         {
             valid_binning_modes.push(BinningMode { symmetric_value: 1 });
         }
         if self
             .device
             .is_control_available(qhyccd_rs::Control::CamBin2x2mode)
-            .is_ok()
+            .is_some()
         {
             valid_binning_modes.push(BinningMode { symmetric_value: 2 });
         }
         if self
             .device
             .is_control_available(qhyccd_rs::Control::CamBin3x3mode)
-            .is_ok()
+            .is_some()
         {
             valid_binning_modes.push(BinningMode { symmetric_value: 3 });
         }
         if self
             .device
             .is_control_available(qhyccd_rs::Control::CamBin4x4mode)
-            .is_ok()
+            .is_some()
         {
             valid_binning_modes.push(BinningMode { symmetric_value: 4 });
         }
         if self
             .device
             .is_control_available(qhyccd_rs::Control::CamBin6x6mode)
-            .is_ok()
+            .is_some()
         {
             valid_binning_modes.push(BinningMode { symmetric_value: 6 });
         }
         if self
             .device
             .is_control_available(qhyccd_rs::Control::CamBin8x8mode)
-            .is_ok()
+            .is_some()
         {
             valid_binning_modes.push(BinningMode { symmetric_value: 8 });
         }
@@ -116,7 +120,8 @@ impl QhyccdCamera {
     }
 
     fn transform_image(_image: qhyccd_rs::ImageData) -> ImageArray {
-        unimplemented!("transform_image not implemented")
+        //TODO: actually implement this
+        Array3::<u16>::zeros((10_usize, 10_usize, 3)).into()
     }
 }
 
@@ -313,9 +318,9 @@ impl Camera for QhyccdCamera {
                 .device
                 .is_control_available(qhyccd_rs::Control::CamMechanicalShutter)
             {
-                Ok(_) => Ok(true),
-                Err(e) => {
-                    debug!(?e, "is_control_available failed for CamMechanicalShutter");
+                Some(_) => Ok(true),
+                None => {
+                    debug!("no mechanical shutter");
                     Ok(false)
                 }
             },
@@ -371,7 +376,7 @@ impl Camera for QhyccdCamera {
     async fn last_exposure_duration(&self) -> ASCOMResult<f64> {
         match self.connected().await {
             Ok(true) => match *self.last_exposure_duration_us.read().await {
-                Some(duration) => Ok(duration),
+                Some(duration) => Ok(duration as f64),
                 None => Err(ASCOMError::VALUE_NOT_SET),
             },
             _ => {
@@ -605,7 +610,14 @@ impl Camera for QhyccdCamera {
                     expected_duration_us,
                     ..
                 } => match self.device.get_remaining_exposure_us() {
-                    Ok(remaining) => Ok(remaining as i32 / expected_duration_us as i32),
+                    Ok(remaining) => {
+                        let res = (100_f64 * remaining as f64 / expected_duration_us as f64) as i32;
+                        if res > 100_i32 {
+                            Ok(100_i32)
+                        } else {
+                            Ok(res)
+                        }
+                    }
                     Err(e) => {
                         error!(?e, "get_remaining_exposure_us failed");
                         Err(ASCOMError::UNSPECIFIED)
@@ -674,8 +686,8 @@ impl Camera for QhyccdCamera {
                 .device
                 .is_control_available(qhyccd_rs::Control::CamIsColor)
             {
-                Ok(_) => Ok(SensorType::Color),
-                Err(_) => Ok(SensorType::Monochrome),
+                Some(_) => Ok(SensorType::Color),
+                None => Ok(SensorType::Monochrome),
             },
             _ => {
                 error!("camera not connected");
@@ -693,7 +705,7 @@ impl Camera for QhyccdCamera {
         }
         match self.connected().await {
             Ok(true) => {
-                let exposure_us = duration * 1_000_000.0;
+                let exposure_us = (duration * 1_000_000_f64) as u32;
 
                 let (stop_tx, stop_rx) = oneshot::channel::<StopExposure>();
                 let (done_tx, done_rx) = watch::channel(false);
@@ -701,16 +713,22 @@ impl Camera for QhyccdCamera {
                 *self.last_exposure_start_time.write().await = Some(SystemTime::now());
                 *self.last_exposure_duration_us.write().await = Some(exposure_us);
 
-                *self.exposing.write().await = ExposingState::Exposing {
-                    expected_duration_us: exposure_us,
-                    start: SystemTime::now(),
-                    stop_tx: Some(stop_tx),
-                    done_rx,
+                let mut lock = self.exposing.write().await;
+                if *lock != ExposingState::Idle {
+                    error!("camera already exposing");
+                    return Err(ASCOMError::INVALID_OPERATION);
+                } else {
+                    *lock = ExposingState::Exposing {
+                        start: SystemTime::now(),
+                        expected_duration_us: exposure_us,
+                        stop_tx: Some(stop_tx),
+                        done_rx,
+                    }
                 };
 
                 match self
                     .device
-                    .set_parameter(qhyccd_rs::Control::Exposure, exposure_us)
+                    .set_parameter(qhyccd_rs::Control::Exposure, exposure_us as f64)
                 {
                     Ok(_) => {}
                     Err(e) => {
@@ -801,7 +819,7 @@ impl Camera for QhyccdCamera {
                 Ok(_) => Ok(()),
                 Err(e) => {
                     error!(?e, "stop_exposure failed");
-                    Err(ASCOMError::NOT_CONNECTED)
+                    Err(ASCOMError::UNSPECIFIED)
                 }
             },
             _ => {
@@ -817,7 +835,7 @@ impl Camera for QhyccdCamera {
                 Ok(_) => Ok(()),
                 Err(e) => {
                     error!(?e, "stop_exposure failed");
-                    Err(ASCOMError::NOT_CONNECTED)
+                    Err(ASCOMError::UNSPECIFIED)
                 }
             },
             _ => {
