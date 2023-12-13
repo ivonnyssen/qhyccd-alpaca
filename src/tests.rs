@@ -1694,3 +1694,26 @@ async fn sensor_type_success_monochrome() {
     //then
     assert_eq!(res.unwrap(), SensorType::Monochrome);
 }
+
+#[tokio::test]
+async fn stop_abort() {
+    //given
+    let camera = new_camera(MockCamera::new(), MockCameraType::Untouched);
+    // when / then
+    assert!(!camera.can_stop_exposure().await.unwrap());
+    assert!(camera.can_abort_exposure().await.unwrap());
+}
+
+#[tokio::test]
+async fn stop_exposure(){
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_stop_exposure()
+        .once()
+        .returning(|| Ok(()));
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
+    //when
+    let res = camera.stop_exposure().await;
+    //then 
+    assert!(res.is_ok());
+}
