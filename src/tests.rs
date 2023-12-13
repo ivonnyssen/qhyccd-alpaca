@@ -46,6 +46,7 @@ async fn not_connected_asyncs() {
     not_connected! {readout_mode()}
     not_connected! {set_readout_mode(1)}
     not_connected! {readout_modes()}
+    not_connected! {percent_completed()}
     not_connected! {stop_exposure()}
     not_connected! {abort_exposure()}
 }
@@ -1543,6 +1544,29 @@ async fn percent_completed_over_9000() {
     //then
     assert!(res.is_ok());
     assert_eq!(res.unwrap(), 100_i32);
+}
+
+#[tokio::test]
+async fn percent_completed_fail_get_remaining_exposure_us() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_get_remaining_exposure_us()
+        .once()
+        .returning(|| Err(eyre!(qhyccd_rs::QHYError::GetExposureRemainingError)));
+    let camera = new_camera(
+        mock,
+        MockCameraType::Exposing {
+            expected_duration: 10000_f64,
+        },
+    );
+    //when
+    let res = camera.percent_completed().await;
+    //then
+    assert!(res.is_err());
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::UNSPECIFIED.to_string(),
+    )
 }
 
 #[tokio::test]
