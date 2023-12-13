@@ -1758,7 +1758,7 @@ async fn stop_exposure_fail_stop_exposure() {
     //then
     assert_eq!(
         res.err().unwrap().to_string(),
-        ASCOMError::NOT_CONNECTED.to_string(),
+        ASCOMError::UNSPECIFIED.to_string(),
     )
 }
 
@@ -1793,7 +1793,7 @@ async fn abort_exposure_fail_abort_exposure_and_readout() {
     //then
     assert_eq!(
         res.err().unwrap().to_string(),
-        ASCOMError::NOT_CONNECTED.to_string(),
+        ASCOMError::UNSPECIFIED.to_string(),
     )
 }
 

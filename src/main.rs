@@ -819,7 +819,7 @@ impl Camera for QhyccdCamera {
                 Ok(_) => Ok(()),
                 Err(e) => {
                     error!(?e, "stop_exposure failed");
-                    Err(ASCOMError::NOT_CONNECTED)
+                    Err(ASCOMError::UNSPECIFIED)
                 }
             },
             _ => {
@@ -835,7 +835,7 @@ impl Camera for QhyccdCamera {
                 Ok(_) => Ok(()),
                 Err(e) => {
                     error!(?e, "stop_exposure failed");
-                    Err(ASCOMError::NOT_CONNECTED)
+                    Err(ASCOMError::UNSPECIFIED)
                 }
             },
             _ => {
