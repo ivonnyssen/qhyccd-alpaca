@@ -1705,15 +1705,13 @@ async fn stop_abort() {
 }
 
 #[tokio::test]
-async fn stop_exposure(){
+async fn stop_exposure() {
     //given
     let mut mock = MockCamera::new();
-    mock.expect_stop_exposure()
-        .once()
-        .returning(|| Ok(()));
+    mock.expect_stop_exposure().once().returning(|| Ok(()));
     let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
     //when
     let res = camera.stop_exposure().await;
-    //then 
+    //then
     assert!(res.is_ok());
 }
