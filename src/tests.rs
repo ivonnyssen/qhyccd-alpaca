@@ -210,7 +210,7 @@ async fn max_bin_x_fail_no_modes() {
 }
 
 #[tokio::test]
-async fn camrea_state_success() {
+async fn camera_state_successw_idle() {
     //given
     let mock = MockCamera::new();
     let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
@@ -1490,6 +1490,17 @@ async fn percent_completed_success() {
     //then
     assert!(res.is_ok());
     assert_eq!(res.unwrap(), 50_i32);
+}
+#[tokio::test]
+async fn percent_completed_done_success() {
+    //given
+    let mock = MockCamera::new();
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
+    //when
+    let res = camera.percent_completed().await;
+    //then
+    assert!(res.is_ok());
+    assert_eq!(res.unwrap(), 100_i32);
 }
 
 #[tokio::test]
