@@ -713,20 +713,18 @@ impl Camera for QhyccdCamera {
                 *self.last_exposure_start_time.write().await = Some(SystemTime::now());
                 *self.last_exposure_duration_us.write().await = Some(exposure_us);
 
-                {
-                    let mut lock = self.exposing.write().await;
-                    if *lock != ExposingState::Idle {
-                        error!("camera already exposing");
-                        return Err(ASCOMError::INVALID_OPERATION);
-                    } else {
-                        *lock = ExposingState::Exposing {
-                            start: SystemTime::now(),
-                            expected_duration_us: exposure_us,
-                            stop_tx: Some(stop_tx),
-                            done_rx,
-                        }
-                    };
-                }
+                let mut lock = self.exposing.write().await;
+                if *lock != ExposingState::Idle {
+                    error!("camera already exposing");
+                    return Err(ASCOMError::INVALID_OPERATION);
+                } else {
+                    *lock = ExposingState::Exposing {
+                        start: SystemTime::now(),
+                        expected_duration_us: exposure_us,
+                        stop_tx: Some(stop_tx),
+                        done_rx,
+                    }
+                };
 
                 match self
                     .device

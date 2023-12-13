@@ -1882,3 +1882,126 @@ async fn start_exposure_success_no_miri() {
     //then
     assert!(res.is_ok());
 }
+
+#[tokio::test]
+async fn start_exposure_fail_set_parameter_no_miri() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_set_parameter()
+        .once()
+        .withf(|control, exposure| {
+            *control == qhyccd_rs::Control::Exposure && *exposure == 1_000_000_f64
+        })
+        .returning(|_, _| {
+            Err(eyre!(qhyccd_rs::QHYError::SetParameterError {
+                error_code: 123
+            }))
+        });
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
+    //when
+    let res = camera.start_exposure(1_f64, true).await;
+    //then
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::UNSPECIFIED.to_string(),
+    )
+}
+
+#[tokio::test]
+async fn start_exposure_fail_start_single_fram_exposure_no_miri() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_set_parameter()
+        .once()
+        .withf(|control, exposure| {
+            *control == qhyccd_rs::Control::Exposure && *exposure == 1_000_000_f64
+        })
+        .returning(|_, _| Ok(()));
+    let mut clone_mock = MockCamera::new();
+    clone_mock
+        .expect_start_single_frame_exposure()
+        .once()
+        .returning(|| {
+            Err(eyre!(qhyccd_rs::QHYError::StartSingleFrameExposureError {
+                error_code: 123
+            }))
+        });
+    mock.expect_clone().once().return_once(move || clone_mock);
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
+    //when
+    let res = camera.start_exposure(1_f64, true).await;
+    //then
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::UNSPECIFIED.to_string(),
+    )
+}
+
+#[tokio::test]
+async fn start_exposure_fail_get_image_size_no_miri() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_set_parameter()
+        .once()
+        .withf(|control, exposure| {
+            *control == qhyccd_rs::Control::Exposure && *exposure == 1_000_000_f64
+        })
+        .returning(|_, _| Ok(()));
+    let mut clone_mock = MockCamera::new();
+    clone_mock
+        .expect_start_single_frame_exposure()
+        .once()
+        .returning(|| Ok(()));
+    clone_mock
+        .expect_get_image_size()
+        .once()
+        .returning(|| Err(eyre!(qhyccd_rs::QHYError::GetImageSizeError)));
+    mock.expect_clone().once().return_once(move || clone_mock);
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
+    //when
+    let res = camera.start_exposure(1_f64, true).await;
+    //then
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::UNSPECIFIED.to_string(),
+    )
+}
+
+#[tokio::test]
+async fn start_exposure_get_single_frame_no_miri() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_set_parameter()
+        .once()
+        .withf(|control, exposure| {
+            *control == qhyccd_rs::Control::Exposure && *exposure == 1_000_000_f64
+        })
+        .returning(|_, _| Ok(()));
+    let mut clone_mock = MockCamera::new();
+    clone_mock
+        .expect_start_single_frame_exposure()
+        .once()
+        .returning(|| Ok(()));
+    clone_mock
+        .expect_get_image_size()
+        .once()
+        .returning(|| Ok(100_usize));
+    clone_mock
+        .expect_get_single_frame()
+        .once()
+        .withf(|size| *size == 100_usize)
+        .returning(|_| {
+            Err(eyre!(qhyccd_rs::QHYError::GetSingleFrameError {
+                error_code: 123
+            }))
+        });
+    mock.expect_clone().once().return_once(move || clone_mock);
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
+    //when
+    let res = camera.start_exposure(1_f64, true).await;
+    //then
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::UNSPECIFIED.to_string(),
+    )
+}
