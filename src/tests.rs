@@ -46,6 +46,8 @@ async fn not_connected_asyncs() {
     not_connected! {readout_mode()}
     not_connected! {set_readout_mode(1)}
     not_connected! {readout_modes()}
+    not_connected! {stop_exposure()}
+    not_connected! {abort_exposure()}
 }
 
 enum MockCameraType {
@@ -1714,4 +1716,58 @@ async fn stop_exposure() {
     let res = camera.stop_exposure().await;
     //then
     assert!(res.is_ok());
+}
+
+#[tokio::test]
+async fn stop_exposure_fail_stop_exposure() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_stop_exposure().once().returning(|| {
+        Err(eyre!(qhyccd_rs::QHYError::StopExposureError {
+            error_code: 123
+        }))
+    });
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
+    //when
+    let res = camera.stop_exposure().await;
+    //then
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::NOT_CONNECTED.to_string(),
+    )
+}
+
+#[tokio::test]
+async fn abort_exposure() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_abort_exposure_and_readout()
+        .once()
+        .returning(|| Ok(()));
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
+    //when
+    let res = camera.abort_exposure().await;
+    //then
+    assert!(res.is_ok());
+}
+
+#[tokio::test]
+async fn abort_exposure_fail_abort_exposure_and_readout() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_abort_exposure_and_readout()
+        .once()
+        .returning(|| {
+            Err(eyre!(qhyccd_rs::QHYError::AbortExposureAndReadoutError {
+                error_code: 123
+            }))
+        });
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
+    //when
+    let res = camera.abort_exposure().await;
+    //then
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::NOT_CONNECTED.to_string(),
+    )
 }
