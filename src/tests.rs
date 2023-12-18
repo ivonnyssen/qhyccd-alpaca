@@ -1845,7 +1845,7 @@ async fn start_exposure_fail_is_exposing_no_miri() {
 }
 
 #[tokio::test]
-async fn start_exposure_success_no_miri() {
+async fn start_exposure_success_1_channel_8_bpp_no_miri() {
     //given
     let mut mock = MockCamera::new();
     mock.expect_set_parameter()
@@ -1869,10 +1869,50 @@ async fn start_exposure_success_no_miri() {
         .withf(|size| *size == 100_usize)
         .returning(|_| {
             Ok(qhyccd_rs::ImageData {
-                data: Vec::new(),
-                width: 10,
-                height: 10,
+                data: vec![0, 1, 2, 3, 4, 5],
+                width: 3,
+                height: 2,
                 bits_per_pixel: 8,
+                channels: 1,
+            })
+        });
+    mock.expect_clone().once().return_once(move || clone_mock);
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
+    //when
+    let res = camera.start_exposure(1_f64, true).await;
+    //then
+    assert!(res.is_ok());
+}
+
+#[tokio::test]
+async fn start_exposure_success_1_channel_16_bpp_no_miri() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_set_parameter()
+        .once()
+        .withf(|control, exposure| {
+            *control == qhyccd_rs::Control::Exposure && *exposure == 1_000_000_f64
+        })
+        .returning(|_, _| Ok(()));
+    let mut clone_mock = MockCamera::new();
+    clone_mock
+        .expect_start_single_frame_exposure()
+        .once()
+        .returning(|| Ok(()));
+    clone_mock
+        .expect_get_image_size()
+        .once()
+        .returning(|| Ok(100_usize));
+    clone_mock
+        .expect_get_single_frame()
+        .once()
+        .withf(|size| *size == 100_usize)
+        .returning(|_| {
+            Ok(qhyccd_rs::ImageData {
+                data: vec![0, 0, 0, 1, 0, 2, 0, 3, 0, 4, 0, 5],
+                width: 3,
+                height: 2,
+                bits_per_pixel: 16,
                 channels: 1,
             })
         });
