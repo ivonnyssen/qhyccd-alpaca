@@ -119,9 +119,61 @@ impl QhyccdCamera {
         valid_binning_modes
     }
 
-    fn transform_image(_image: qhyccd_rs::ImageData) -> ImageArray {
-        //TODO: actually implement this
-        Array3::<u16>::zeros((10_usize, 10_usize, 3)).into()
+    fn transform_image(image: qhyccd_rs::ImageData) -> ImageArray {
+        match image.channels {
+            1_u32 => match image.bits_per_pixel {
+                8_u32 => Array3::from_shape_vec(
+                    (image.width as usize, image.height as usize, 1),
+                    image.data,
+                )
+                .unwrap()
+                .into(),
+                16_u32 => {
+                    let data: Vec<u16> = image
+                        .data
+                        .chunks_exact(2)
+                        .map(|a| u16::from_ne_bytes([a[0], a[1]]))
+                        .collect();
+                    Array3::from_shape_vec((image.width as usize, image.height as usize, 1), data)
+                        .unwrap()
+                        .into()
+                }
+                _u32 => {
+                    error!("unsupported bits_per_pixel");
+                    Array3::<u16>::zeros((image.width as usize, image.height as usize, 1)).into()
+                }
+            },
+            3_u32 => match image.bits_per_pixel {
+                //TODO: below is wrong, but need to test with a color coamera to see how this
+                //actually comes out of the camera
+                8_u32 => {
+                    let mut data = Vec::with_capacity(image.data.len());
+                    for byte in image.data {
+                        data.push(byte);
+                    }
+                    Array3::from_shape_vec((image.width as usize, image.height as usize, 3), data)
+                        .unwrap()
+                        .into()
+                }
+                16_u32 => {
+                    let mut data = Vec::with_capacity(image.data.len());
+                    for byte in image.data {
+                        data.push(byte);
+                    }
+                    Array3::from_shape_vec((image.width as usize, image.height as usize, 3), data)
+                        .unwrap()
+                        .into()
+                }
+                _u32 => {
+                    error!("unsupported bits_per_pixel");
+                    Array3::<u16>::zeros((image.width as usize, image.height as usize, 1)).into()
+                }
+            },
+            _ => {
+                error!("unsupported bits_per_pixel");
+                Array3::<u16>::zeros((image.width as usize, image.height as usize, 1)).into()
+            }
+        }
     }
 }
 
@@ -681,6 +733,9 @@ impl Camera for QhyccdCamera {
     }
 
     async fn sensor_type(&self) -> ASCOMResult<SensorType> {
+        //TODO: below is wrong, so update adn test with a color camera
+        //check this in conjucntion with SeDebayerOn as well
+        //see here: https://ascom-standards.org/api/#/Camera%20Specific%20Methods/get_camera__device_number__imagearray
         match self.connected().await {
             Ok(true) => match self
                 .device
