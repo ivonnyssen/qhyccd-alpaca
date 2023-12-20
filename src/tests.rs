@@ -1700,11 +1700,15 @@ async fn sensor_type_success_color() {
         .once()
         .withf(|control| *control == qhyccd_rs::Control::CamIsColor)
         .returning(|_| Some(0));
+    mock.expect_is_control_available()
+        .once()
+        .withf(|control| *control == qhyccd_rs::Control::CamColor)
+        .returning(|_| Some(1));
     let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
     //when
     let res = camera.sensor_type().await;
     //then
-    assert_eq!(res.unwrap(), SensorType::Color);
+    assert_eq!(res.unwrap(), SensorType::RGGB);
 }
 
 #[tokio::test]
@@ -1720,6 +1724,28 @@ async fn sensor_type_success_monochrome() {
     let res = camera.sensor_type().await;
     //then
     assert_eq!(res.unwrap(), SensorType::Monochrome);
+}
+
+#[tokio::test]
+async fn sensor_type_fail_cam_color_error() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_is_control_available()
+        .once()
+        .withf(|control| *control == qhyccd_rs::Control::CamIsColor)
+        .returning(|_| Some(0));
+    mock.expect_is_control_available()
+        .once()
+        .withf(|control| *control == qhyccd_rs::Control::CamColor)
+        .returning(|_| None);
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
+    //when
+    let res = camera.sensor_type().await;
+    //then
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::INVALID_VALUE.to_string(),
+    )
 }
 
 #[tokio::test]
