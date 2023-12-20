@@ -139,38 +139,13 @@ impl QhyccdCamera {
                         .into()
                 }
                 _u32 => {
-                    error!("unsupported bits_per_pixel");
-                    Array3::<u16>::zeros((image.width as usize, image.height as usize, 1)).into()
-                }
-            },
-            3_u32 => match image.bits_per_pixel {
-                //TODO: below is wrong, but need to test with a color coamera to see how this
-                //actually comes out of the camera
-                8_u32 => {
-                    let mut data = Vec::with_capacity(image.data.len());
-                    for byte in image.data {
-                        data.push(byte);
-                    }
-                    Array3::from_shape_vec((image.width as usize, image.height as usize, 3), data)
-                        .unwrap()
-                        .into()
-                }
-                16_u32 => {
-                    let mut data = Vec::with_capacity(image.data.len());
-                    for byte in image.data {
-                        data.push(byte);
-                    }
-                    Array3::from_shape_vec((image.width as usize, image.height as usize, 3), data)
-                        .unwrap()
-                        .into()
-                }
-                _u32 => {
+                    //TODO: Not use below should return an empty array, but could work for now
                     error!("unsupported bits_per_pixel");
                     Array3::<u16>::zeros((image.width as usize, image.height as usize, 1)).into()
                 }
             },
             _ => {
-                error!("unsupported bits_per_pixel");
+                error!("unsupported number of channels");
                 Array3::<u16>::zeros((image.width as usize, image.height as usize, 1)).into()
             }
         }
