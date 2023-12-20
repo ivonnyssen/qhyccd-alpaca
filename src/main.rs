@@ -733,8 +733,6 @@ impl Camera for QhyccdCamera {
     }
 
     async fn sensor_type(&self) -> ASCOMResult<SensorType> {
-        //TODO: below is wrong, so update adn test with a color camera
-        //check this in conjucntion with SeDebayerOn as well
         //see here: https://ascom-standards.org/api/#/Camera%20Specific%20Methods/get_camera__device_number__imagearray
         match self.connected().await {
             Ok(true) => match self
