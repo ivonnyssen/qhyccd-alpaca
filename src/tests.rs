@@ -22,7 +22,7 @@ async fn not_connected_asyncs() {
     not_connected! {sensor_type()}
     not_connected! {max_bin_x()}
     not_connected! {max_bin_y()}
-    not_connected! {sensor_name()}
+    //not_connected! {sensor_name()}
     not_connected! {camera_state()}
     not_connected! {bin_x()}
     not_connected! {bin_y()}
@@ -285,6 +285,15 @@ async fn set_connected_true_success() {
     //given
     let mut mock = MockCamera::new();
     mock.expect_open().times(1).returning(|| Ok(()));
+    mock.expect_set_stream_mode()
+        .once()
+        .withf(|mode| *mode == qhyccd_rs::StreamMode::SingleFrameMode)
+        .returning(|_| Ok(()));
+    mock.expect_set_readout_mode()
+        .once()
+        .withf(|mode| *mode == 0)
+        .returning(|_| Ok(()));
+    mock.expect_init().once().returning(|| Ok(()));
     mock.expect_get_effective_area().times(1).returning(|| {
         Ok(CCDChipArea {
             start_x: 0,
@@ -352,6 +361,15 @@ async fn set_connected_fail_get_effective_area() {
     //given
     let mut mock = MockCamera::new();
     mock.expect_open().once().returning(|| Ok(()));
+    mock.expect_set_stream_mode()
+        .once()
+        .withf(|mode| *mode == qhyccd_rs::StreamMode::SingleFrameMode)
+        .returning(|_| Ok(()));
+    mock.expect_set_readout_mode()
+        .once()
+        .withf(|mode| *mode == 0)
+        .returning(|_| Ok(()));
+    mock.expect_init().once().returning(|| Ok(()));
     mock.expect_get_effective_area()
         .once()
         .returning(|| Err(eyre!("could not get effective area")));
@@ -423,7 +441,7 @@ async fn offset_y_success() {
     assert_eq!(res.unwrap(), 0_i32);
 }
 
-#[tokio::test]
+/*#[tokio::test]
 async fn sensor_name_success() {
     //given
     let mut mock = MockCamera::new();
@@ -454,7 +472,7 @@ async fn sensor_name_fail_get_model() {
         ASCOMError::UNSPECIFIED.to_string()
     );
 }
-
+*/
 #[tokio::test]
 async fn bin_x_success() {
     //given
@@ -558,7 +576,7 @@ async fn set_bin_x_fail_invalid_bin() {
     assert!(res.is_err());
     assert_eq!(
         res.err().unwrap().to_string(),
-        ASCOMError::invalid_value("bin_x must be >= 1").to_string()
+        ASCOMError::invalid_value("bin value must be >= 1").to_string()
     );
 }
 
@@ -573,7 +591,7 @@ async fn set_bin_y_fail_invalid_bin() {
     assert!(res.is_err());
     assert_eq!(
         res.err().unwrap().to_string(),
-        ASCOMError::invalid_value("bin_x must be >= 1").to_string()
+        ASCOMError::invalid_value("bin value must be >= 1").to_string()
     );
 }
 
@@ -681,11 +699,13 @@ async fn image_array_empty() {
 #[tokio::test]
 async fn image_ready_not_ready_success() {
     //given
-    let mut mock = MockCamera::new();
-    mock.expect_get_remaining_exposure_us()
-        .once()
-        .returning(|| Ok(10000_u32));
-    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
+    let mock = MockCamera::new();
+    let camera = new_camera(
+        mock,
+        MockCameraType::Exposing {
+            expected_duration: 1000_f64,
+        },
+    );
     //when
     let res = camera.image_ready().await;
     //then
@@ -696,34 +716,18 @@ async fn image_ready_not_ready_success() {
 #[tokio::test]
 async fn image_ready_ready_success() {
     //given
-    let mut mock = MockCamera::new();
-    mock.expect_get_remaining_exposure_us()
-        .once()
-        .returning(|| Ok(0_u32));
-    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
+    let mock = MockCamera::new();
+    let camera = new_camera(
+        mock,
+        MockCameraType::WithImage {
+            image_array: Array3::<u16>::zeros((10_usize, 10_usize, 3)).into(),
+        },
+    );
     //when
     let res = camera.image_ready().await;
     //then
     assert!(res.is_ok());
     assert!(res.unwrap());
-}
-
-#[tokio::test]
-async fn image_ready_fail_get_remaining_exposure_us() {
-    //given
-    let mut mock = MockCamera::new();
-    mock.expect_get_remaining_exposure_us()
-        .once()
-        .returning(|| Err(eyre!(qhyccd_rs::QHYError::GetExposureRemainingError)));
-    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
-    //when
-    let res = camera.image_ready().await;
-    //then
-    assert!(res.is_err());
-    assert_eq!(
-        res.err().unwrap().to_string(),
-        ASCOMError::UNSPECIFIED.to_string()
-    );
 }
 
 #[tokio::test]
@@ -1987,7 +1991,10 @@ async fn start_exposure_fail_unsupported_channel_16_bpp_no_miri() {
     //when
     let res = camera.start_exposure(1_f64, true).await;
     //then
-    assert!(res.is_ok());
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::INVALID_OPERATION.to_string(),
+    )
 }
 
 #[tokio::test]
@@ -2027,7 +2034,10 @@ async fn start_exposure_fail_1_channel_unsupported_bpp_no_miri() {
     //when
     let res = camera.start_exposure(1_f64, true).await;
     //then
-    assert!(res.is_ok());
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::INVALID_OPERATION.to_string(),
+    )
 }
 
 #[tokio::test]

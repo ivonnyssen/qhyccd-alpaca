@@ -6,6 +6,8 @@ use ascom_alpaca::api::{Camera, CameraState, CargoServerInfo, Device, ImageArray
 use ascom_alpaca::{ASCOMError, ASCOMResult, Server};
 use async_trait::async_trait;
 
+use eyre::eyre;
+use eyre::Result;
 use ndarray::Array3;
 
 #[macro_use]
@@ -119,34 +121,49 @@ impl QhyccdCamera {
         valid_binning_modes
     }
 
-    fn transform_image(image: qhyccd_rs::ImageData) -> ImageArray {
+    fn transform_image(image: qhyccd_rs::ImageData) -> Result<ImageArray> {
         match image.channels {
             1_u32 => match image.bits_per_pixel {
-                8_u32 => Array3::from_shape_vec(
-                    (image.width as usize, image.height as usize, 1),
-                    image.data,
-                )
-                .unwrap()
-                .into(),
+                8_u32 => {
+                    let data: Vec<u8> =
+                        image.data[0_usize..image.width as usize * image.height as usize].to_vec();
+                    match Array3::from_shape_vec(
+                        (image.width as usize, image.height as usize, 1),
+                        data,
+                    ) {
+                        Ok(array_base) => Ok(array_base.into()),
+                        Err(e) => {
+                            error!(?e, "could not transform image");
+                            Err(eyre!(e))
+                        }
+                    }
+                }
                 16_u32 => {
-                    let data: Vec<u16> = image
-                        .data
+                    let data = image.data
+                        [0_usize..image.width as usize * image.height as usize * 2_usize]
+                        .to_vec()
                         .chunks_exact(2)
                         .map(|a| u16::from_ne_bytes([a[0], a[1]]))
                         .collect();
-                    Array3::from_shape_vec((image.width as usize, image.height as usize, 1), data)
-                        .unwrap()
-                        .into()
+                    match Array3::from_shape_vec(
+                        (image.width as usize, image.height as usize, 1),
+                        data,
+                    ) {
+                        Ok(array_base) => Ok(array_base.into()),
+                        Err(e) => {
+                            error!(?e, "could not transform image");
+                            Err(eyre!(e))
+                        }
+                    }
                 }
-                _u32 => {
-                    //TODO: Not use below should return an empty array, but could work for now
-                    error!("unsupported bits_per_pixel");
-                    Array3::<u16>::zeros((image.width as usize, image.height as usize, 1)).into()
+                other => {
+                    error!("unsupported bits_per_pixel {:?}", other);
+                    Err(eyre!("unsupported bits_per_pixel {:?}", other))
                 }
             },
-            _ => {
-                error!("unsupported number of channels");
-                Array3::<u16>::zeros((image.width as usize, image.height as usize, 1)).into()
+            other => {
+                error!("unsupported number of channels {:?}", other);
+                Err(eyre!("unsupported number of channels {:?}", other))
             }
         }
     }
@@ -176,6 +193,20 @@ impl Device for QhyccdCamera {
                 true => {
                     self.device.open().map_err(|e| {
                         error!(?e, "open failed");
+                        ASCOMError::NOT_CONNECTED
+                    })?;
+                    self.device
+                        .set_stream_mode(qhyccd_rs::StreamMode::SingleFrameMode)
+                        .map_err(|e| {
+                            error!(?e, "setting StreamMode to SingleFrameMode failed");
+                            ASCOMError::NOT_CONNECTED
+                        })?;
+                    self.device.set_readout_mode(0).map_err(|e| {
+                        error!(?e, "setting readout mode to 0 failed");
+                        ASCOMError::NOT_CONNECTED
+                    })?;
+                    self.device.init().map_err(|e| {
+                        error!(?e, "camera init failed");
                         ASCOMError::NOT_CONNECTED
                     })?;
                     let mut lock = self.roi.write().await;
@@ -221,6 +252,9 @@ impl Camera for QhyccdCamera {
     }
 
     async fn sensor_name(&self) -> ASCOMResult<String> {
+        Err(ASCOMError::NOT_IMPLEMENTED)
+        /*
+        * get_model seems to cause a core_dup on later calls, so rather returning unimplemented
         match self.connected().await {
             Ok(true) => Ok(self.device.get_model().map_err(|e| {
                 error!(?e, "get_model failed");
@@ -230,7 +264,7 @@ impl Camera for QhyccdCamera {
                 error!("camera not connected");
                 Err(ASCOMError::NOT_CONNECTED)
             }
-        }
+        } */
     }
 
     async fn bin_x(&self) -> ASCOMResult<i32> {
@@ -245,7 +279,7 @@ impl Camera for QhyccdCamera {
 
     async fn set_bin_x(&self, bin_x: i32) -> ASCOMResult {
         if bin_x < 1 {
-            return Err(ASCOMError::invalid_value("bin_x must be >= 1"));
+            return Err(ASCOMError::invalid_value("bin value must be >= 1"));
         }
         match self.connected().await {
             Ok(true) => match self.device.set_bin_mode(bin_x as u32, bin_x as u32) {
@@ -373,12 +407,12 @@ impl Camera for QhyccdCamera {
 
     async fn image_ready(&self) -> ASCOMResult<bool> {
         match self.connected().await {
-            Ok(true) => match self.device.get_remaining_exposure_us() {
-                Ok(remaining) => Ok(remaining == 0),
-                Err(e) => {
-                    error!(?e, "get_remaining_exposure_us failed");
-                    Err(ASCOMError::UNSPECIFIED)
-                }
+            Ok(true) => match *self.exposing.read().await {
+                ExposingState::Idle => match *self.last_image.read().await {
+                    Some(_) => Ok(true),
+                    None => Ok(false),
+                },
+                ExposingState::Exposing { .. } => Ok(false),
             },
             _ => {
                 error!("camera not connected");
@@ -743,12 +777,8 @@ impl Camera for QhyccdCamera {
         match self.connected().await {
             Ok(true) => {
                 let exposure_us = (duration * 1_000_000_f64) as u32;
-
                 let (stop_tx, stop_rx) = oneshot::channel::<StopExposure>();
                 let (done_tx, done_rx) = watch::channel(false);
-
-                *self.last_exposure_start_time.write().await = Some(SystemTime::now());
-                *self.last_exposure_duration_us.write().await = Some(exposure_us);
 
                 let mut lock = self.exposing.write().await;
                 if *lock != ExposingState::Idle {
@@ -762,6 +792,9 @@ impl Camera for QhyccdCamera {
                         done_rx,
                     }
                 };
+
+                *self.last_exposure_start_time.write().await = Some(SystemTime::now());
+                *self.last_exposure_duration_us.write().await = Some(exposure_us);
 
                 match self
                     .device
@@ -806,8 +839,16 @@ impl Camera for QhyccdCamera {
                         match image {
                             Ok(image_result) => {
                                 match image_result {
-                                    Ok(image) => { *self.last_image.write().await = Some(QhyccdCamera::transform_image(image));
-                                    let _ = done_tx.send(true);
+                                    Ok(image) => { let  mut lock = self.last_image.write().await;
+                                        match QhyccdCamera::transform_image(image) {
+                                            Ok(image) => *lock = Some(image),
+                                            Err(e) => {
+                                                error!(?e, "failed to transform image");
+                                                return Err(ASCOMError::INVALID_OPERATION)
+                                            }
+                                        }
+                                        let _ = done_tx.send(true);
+                *self.exposing.write().await = ExposingState::Idle;
                                     },
                                     Err(e) => {
                                         error!(?e, "failed to get image");
@@ -885,7 +926,9 @@ impl Camera for QhyccdCamera {
 
 #[tokio::main]
 async fn main() -> eyre::Result<std::convert::Infallible> {
-    tracing_subscriber::fmt::init();
+    tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::TRACE)
+        .init();
 
     let mut server = Server {
         info: CargoServerInfo!(),
