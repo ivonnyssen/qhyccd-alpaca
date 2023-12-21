@@ -59,6 +59,7 @@ enum MockCameraType {
     Untouched,
     Exposing { expected_duration: f64 },
     WithImage { image_array: ImageArray },
+    WithExposureMinMaxStep { min: f64, max: f64, step: f64 },
     WithLastExposureStart { start_time: SystemTime },
     WithLastExposureDuration { duration_us: f64 },
 }
@@ -66,6 +67,7 @@ enum MockCameraType {
 fn new_camera(mut device: MockCamera, variant: MockCameraType) -> QhyccdCamera {
     let mut roi = RwLock::new(None);
     let mut exposing = RwLock::new(ExposingState::Idle);
+    let mut exposure_min_max_step = RwLock::new(None);
     let mut last_exposure_start_time = RwLock::new(None);
     let mut last_exposure_duration_us = RwLock::new(None);
     let mut last_image = RwLock::new(None);
@@ -94,6 +96,10 @@ fn new_camera(mut device: MockCamera, variant: MockCameraType) -> QhyccdCamera {
             device.expect_is_open().times(1).returning(|| Ok(true));
             last_image = RwLock::new(Some(image));
         }
+        MockCameraType::WithExposureMinMaxStep { min, max, step } => {
+            device.expect_is_open().once().returning(|| Ok(true));
+            exposure_min_max_step = RwLock::new(Some((min, max, step)));
+        }
         MockCameraType::WithLastExposureStart { start_time } => {
             device.expect_is_open().times(1).returning(|| Ok(true));
             last_exposure_start_time = RwLock::new(Some(start_time));
@@ -111,6 +117,7 @@ fn new_camera(mut device: MockCamera, variant: MockCameraType) -> QhyccdCamera {
         binning: RwLock::new(BinningMode { symmetric_value: 1 }),
         valid_bins: RwLock::new(None),
         roi,
+        exposure_min_max_step,
         last_exposure_start_time,
         last_exposure_duration_us,
         last_image,
@@ -135,6 +142,7 @@ async fn qhyccd_camera() {
         binning: RwLock::new(BinningMode { symmetric_value: 1 }),
         valid_bins: RwLock::new(None),
         roi: RwLock::new(None),
+        exposure_min_max_step: RwLock::new(None),
         last_exposure_start_time: RwLock::new(None),
         last_exposure_duration_us: RwLock::new(None),
         last_image: RwLock::new(None),
@@ -321,6 +329,10 @@ async fn set_connected_true_success() {
             Control::CamBin8x8mode => Some(0_u32),
             _ => panic!("Unexpected control"),
         });
+    mock.expect_get_parameter_min_max_step()
+        .once()
+        .withf(|control| *control == qhyccd_rs::Control::Exposure)
+        .returning(|_| Ok((1_f64, 3_f64, 1_f64)));
     let camera = new_camera(mock, MockCameraType::IsOpenFalse { times: 1 });
     //when
     let res = camera.set_connected(true).await;
@@ -392,6 +404,10 @@ async fn set_connected_fail_get_effective_area() {
             Control::CamBin8x8mode => Some(0_u32),
             _ => panic!("Unexpected control"),
         });
+    mock.expect_get_parameter_min_max_step()
+        .once()
+        .withf(|control| *control == qhyccd_rs::Control::Exposure)
+        .returning(|_| Ok((1_f64, 3_f64, 1_f64)));
     let camera = new_camera(mock, MockCameraType::IsOpenFalse { times: 1 });
     //when
     let res = camera.set_connected(true).await;
@@ -606,23 +622,6 @@ async fn unimplmented_functions() {
         ASCOMError::NOT_IMPLEMENTED.to_string()
     );
     assert_eq!(
-        camera.exposure_max().await.err().unwrap().to_string(),
-        ASCOMError::NOT_IMPLEMENTED.to_string()
-    );
-    assert_eq!(
-        camera.exposure_min().await.err().unwrap().to_string(),
-        ASCOMError::NOT_IMPLEMENTED.to_string()
-    );
-    assert_eq!(
-        camera
-            .exposure_resolution()
-            .await
-            .err()
-            .unwrap()
-            .to_string(),
-        ASCOMError::NOT_IMPLEMENTED.to_string()
-    );
-    assert_eq!(
         camera.full_well_capacity().await.err().unwrap().to_string(),
         ASCOMError::NOT_IMPLEMENTED.to_string()
     );
@@ -630,6 +629,18 @@ async fn unimplmented_functions() {
         camera.max_adu().await.err().unwrap().to_string(),
         ASCOMError::NOT_IMPLEMENTED.to_string()
     );
+}
+
+#[tokio::test]
+async fn exposure_max_success() {
+    //given
+    let mock = MockCamera::new();
+    let camera = new_camera(mock, MockCameraType::WithExposureMinMaxStep { min:0_f64, max:3_600_000_000_f64, step:1_f64 });
+    //when
+    let res = camera.exposure_max().await;
+    //then
+    assert!(res.is_ok());
+    assert_eq!(res.unwrap(), (3_600_f64));
 }
 
 #[tokio::test]
@@ -769,14 +780,14 @@ async fn last_exposure_duration_fail_success() {
     let camera = new_camera(
         mock,
         MockCameraType::WithLastExposureDuration {
-            duration_us: 1000_f64,
+            duration_us: 2_000_000_f64,
         },
     );
     //when
     let res = camera.last_exposure_duration().await;
     //then
     assert!(res.is_ok());
-    assert_eq!(res.unwrap(), 1000_f64);
+    assert_eq!(res.unwrap(), 2_f64);
 }
 
 #[tokio::test]

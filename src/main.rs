@@ -67,6 +67,7 @@ struct QhyccdCamera {
     binning: RwLock<BinningMode>,
     valid_bins: RwLock<Option<Vec<BinningMode>>>,
     roi: RwLock<Option<qhyccd_rs::CCDChipArea>>,
+    exposure_min_max_step: RwLock<Option<(f64, f64, f64)>>,
     last_exposure_start_time: RwLock<Option<SystemTime>>,
     last_exposure_duration_us: RwLock<Option<u32>>,
     last_image: RwLock<Option<ImageArray>>,
@@ -218,6 +219,17 @@ impl Device for QhyccdCamera {
                         }
                     };
                     *self.valid_bins.write().await = Some(self.get_valid_binning_modes());
+                    let mut lock = self.exposure_min_max_step.write().await;
+                    *lock = match self
+                        .device
+                        .get_parameter_min_max_step(qhyccd_rs::Control::Exposure)
+                    {
+                        Ok((min, max, step)) => Some((min, max, step)),
+                        Err(e) => {
+                            error!(?e, "get_effective_area failed");
+                            None
+                        }
+                    };
                     Ok(())
                 }
                 false => self.device.close().map_err(|e| {
@@ -354,8 +366,20 @@ impl Camera for QhyccdCamera {
     }
 
     async fn exposure_max(&self) -> ASCOMResult<f64> {
-        debug!("exposure_max not implemented");
-        Err(ASCOMError::NOT_IMPLEMENTED)
+        match self.connected().await {
+            Ok(true) => match *self.exposure_min_max_step.read().await {
+                Some((_min,max,_step)) => Ok(max / 1_000_000_f64), //values from the camera are in
+                //us
+                None => {
+                    error!("should have a max exposure value, but don't");
+                    Err(ASCOMError::INVALID_VALUE)
+                }
+            }
+            _ => {
+                error!("camera not connected");
+                return Err(ASCOMError::NOT_CONNECTED);
+            }
+        }
     }
 
     async fn exposure_min(&self) -> ASCOMResult<f64> {
@@ -437,7 +461,7 @@ impl Camera for QhyccdCamera {
     async fn last_exposure_duration(&self) -> ASCOMResult<f64> {
         match self.connected().await {
             Ok(true) => match *self.last_exposure_duration_us.read().await {
-                Some(duration) => Ok(duration as f64),
+                Some(duration) => Ok(duration as f64 / 1_000_000_f64),
                 None => Err(ASCOMError::VALUE_NOT_SET),
             },
             _ => {
@@ -848,7 +872,6 @@ impl Camera for QhyccdCamera {
                                             }
                                         }
                                         let _ = done_tx.send(true);
-                *self.exposing.write().await = ExposingState::Idle;
                                     },
                                     Err(e) => {
                                         error!(?e, "failed to get image");
@@ -872,7 +895,7 @@ impl Camera for QhyccdCamera {
                         }
                     }
                 }
-                tokio::spawn(async move {});
+                *lock = ExposingState::Idle;
                 Ok(())
             }
             _ => {
@@ -952,6 +975,7 @@ async fn main() -> eyre::Result<std::convert::Infallible> {
             binning: RwLock::new(BinningMode { symmetric_value: 1 }),
             valid_bins: RwLock::new(None),
             roi: RwLock::new(None),
+            exposure_min_max_step: RwLock::new(None),
             last_exposure_start_time: RwLock::new(None),
             last_exposure_duration_us: RwLock::new(None),
             last_image: RwLock::new(None),
