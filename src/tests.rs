@@ -22,7 +22,7 @@ async fn not_connected_asyncs() {
     not_connected! {sensor_type()}
     not_connected! {max_bin_x()}
     not_connected! {max_bin_y()}
-    //not_connected! {sensor_name()}
+    not_connected! {sensor_name()}
     not_connected! {camera_state()}
     not_connected! {bin_x()}
     not_connected! {bin_y()}
@@ -48,23 +48,43 @@ async fn not_connected_asyncs() {
     not_connected! {readout_modes()}
     not_connected! {percent_completed()}
     not_connected! {start_exposure(1.0, true)}
-    not_connected! {stop_exposure()}
+    //not_connected! {stop_exposure()}
     not_connected! {abort_exposure()}
 }
 
 enum MockCameraType {
-    IsOpenTrue { times: usize },
-    IsOpenFalse { times: usize },
-    WithRoi { camera_roi: CCDChipArea },
+    IsOpenTrue {
+        times: usize,
+    },
+    IsOpenFalse {
+        times: usize,
+    },
+    WithRoiAndCCDInfo {
+        camera_roi: CCDChipArea,
+        camera_ccd_info: CCDChipInfo,
+    },
     Untouched,
-    Exposing { expected_duration: f64 },
-    WithImage { image_array: ImageArray },
-    WithExposureMinMaxStep { min: f64, max: f64, step: f64 },
-    WithLastExposureStart { start_time: SystemTime },
-    WithLastExposureDuration { duration_us: f64 },
+    Exposing {
+        expected_duration: f64,
+    },
+    WithImage {
+        image_array: ImageArray,
+    },
+    WithExposureMinMaxStep {
+        min: f64,
+        max: f64,
+        step: f64,
+    },
+    WithLastExposureStart {
+        start_time: SystemTime,
+    },
+    WithLastExposureDuration {
+        duration_us: f64,
+    },
 }
 
 fn new_camera(mut device: MockCamera, variant: MockCameraType) -> QhyccdCamera {
+    let mut ccd_info = RwLock::new(None);
     let mut roi = RwLock::new(None);
     let mut exposing = RwLock::new(ExposingState::Idle);
     let mut exposure_min_max_step = RwLock::new(None);
@@ -78,8 +98,12 @@ fn new_camera(mut device: MockCamera, variant: MockCameraType) -> QhyccdCamera {
         MockCameraType::IsOpenFalse { times } => {
             device.expect_is_open().times(times).returning(|| Ok(false));
         }
-        MockCameraType::WithRoi { camera_roi } => {
+        MockCameraType::WithRoiAndCCDInfo {
+            camera_roi,
+            camera_ccd_info,
+        } => {
             device.expect_is_open().times(1).returning(|| Ok(true));
+            ccd_info = RwLock::new(Some(camera_ccd_info));
             roi = RwLock::new(Some(camera_roi));
         }
         MockCameraType::Untouched => {}
@@ -116,6 +140,7 @@ fn new_camera(mut device: MockCamera, variant: MockCameraType) -> QhyccdCamera {
         device,
         binning: RwLock::new(BinningMode { symmetric_value: 1 }),
         valid_bins: RwLock::new(None),
+        ccd_info,
         roi,
         exposure_min_max_step,
         last_exposure_start_time,
@@ -141,6 +166,7 @@ async fn qhyccd_camera() {
         device: mock.clone(),
         binning: RwLock::new(BinningMode { symmetric_value: 1 }),
         valid_bins: RwLock::new(None),
+        ccd_info: RwLock::new(None),
         roi: RwLock::new(None),
         exposure_min_max_step: RwLock::new(None),
         last_exposure_start_time: RwLock::new(None),
@@ -635,7 +661,14 @@ async fn unimplmented_functions() {
 async fn exposure_max_success() {
     //given
     let mock = MockCamera::new();
-    let camera = new_camera(mock, MockCameraType::WithExposureMinMaxStep { min:0_f64, max:3_600_000_000_f64, step:1_f64 });
+    let camera = new_camera(
+        mock,
+        MockCameraType::WithExposureMinMaxStep {
+            min: 0_f64,
+            max: 3_600_000_000_f64,
+            step: 1_f64,
+        },
+    );
     //when
     let res = camera.exposure_max().await;
     //then
@@ -811,12 +844,21 @@ async fn camera_xsize_success() {
     let mock = MockCamera::new();
     let camera = new_camera(
         mock,
-        MockCameraType::WithRoi {
+        MockCameraType::WithRoiAndCCDInfo {
             camera_roi: CCDChipArea {
                 start_x: 0,
                 start_y: 0,
                 width: 100,
                 height: 100,
+            },
+            camera_ccd_info: CCDChipInfo {
+                chip_width: 1920_f64,
+                chip_height: 1080_f64,
+                image_width: 1,
+                image_height: 1,
+                pixel_width: 2.9,
+                pixel_height: 2.9,
+                bits_per_pixel: 16,
             },
         },
     );
@@ -848,12 +890,21 @@ async fn camera_ysize_success() {
     let mock = MockCamera::new();
     let camera = new_camera(
         mock,
-        MockCameraType::WithRoi {
+        MockCameraType::WithRoiAndCCDInfo {
             camera_roi: CCDChipArea {
                 start_x: 0,
                 start_y: 0,
                 width: 100,
                 height: 100,
+            },
+            camera_ccd_info: CCDChipInfo {
+                chip_width: 1920_f64,
+                chip_height: 1080_f64,
+                image_width: 1,
+                image_height: 1,
+                pixel_width: 2.9,
+                pixel_height: 2.9,
+                bits_per_pixel: 16,
             },
         },
     );
@@ -885,12 +936,21 @@ async fn start_x_success() {
     let mock = MockCamera::new();
     let camera = new_camera(
         mock,
-        MockCameraType::WithRoi {
+        MockCameraType::WithRoiAndCCDInfo {
             camera_roi: CCDChipArea {
                 start_x: 100,
                 start_y: 0,
                 width: 10,
                 height: 10,
+            },
+            camera_ccd_info: CCDChipInfo {
+                chip_width: 1920_f64,
+                chip_height: 1080_f64,
+                image_width: 1,
+                image_height: 1,
+                pixel_width: 2.9,
+                pixel_height: 2.9,
+                bits_per_pixel: 16,
             },
         },
     );
@@ -933,12 +993,21 @@ async fn set_start_x_success() {
         .returning(|_| Ok(()));
     let camera = new_camera(
         mock,
-        MockCameraType::WithRoi {
+        MockCameraType::WithRoiAndCCDInfo {
             camera_roi: CCDChipArea {
                 start_x: 0,
                 start_y: 0,
                 width: 100,
                 height: 100,
+            },
+            camera_ccd_info: CCDChipInfo {
+                chip_width: 1920_f64,
+                chip_height: 1080_f64,
+                image_width: 1,
+                image_height: 1,
+                pixel_width: 2.9,
+                pixel_height: 2.9,
+                bits_per_pixel: 16,
             },
         },
     );
@@ -1004,12 +1073,21 @@ async fn set_start_x_fail_set_roi() {
         .returning(|_| Err(eyre!(qhyccd_rs::QHYError::SetRoiError { error_code: 123 })));
     let camera = new_camera(
         mock,
-        MockCameraType::WithRoi {
+        MockCameraType::WithRoiAndCCDInfo {
             camera_roi: CCDChipArea {
                 start_x: 0,
                 start_y: 0,
                 width: 100,
                 height: 100,
+            },
+            camera_ccd_info: CCDChipInfo {
+                chip_width: 1920_f64,
+                chip_height: 1080_f64,
+                image_width: 1,
+                image_height: 1,
+                pixel_width: 2.9,
+                pixel_height: 2.9,
+                bits_per_pixel: 16,
             },
         },
     );
@@ -1038,12 +1116,21 @@ async fn start_y_success() {
     let mock = MockCamera::new();
     let camera = new_camera(
         mock,
-        MockCameraType::WithRoi {
+        MockCameraType::WithRoiAndCCDInfo {
             camera_roi: CCDChipArea {
                 start_x: 0,
                 start_y: 100,
                 width: 10,
                 height: 10,
+            },
+            camera_ccd_info: CCDChipInfo {
+                chip_width: 1920_f64,
+                chip_height: 1080_f64,
+                image_width: 1,
+                image_height: 1,
+                pixel_width: 2.9,
+                pixel_height: 2.9,
+                bits_per_pixel: 16,
             },
         },
     );
@@ -1086,12 +1173,21 @@ async fn set_start_y_success() {
         .returning(|_| Ok(()));
     let camera = new_camera(
         mock,
-        MockCameraType::WithRoi {
+        MockCameraType::WithRoiAndCCDInfo {
             camera_roi: CCDChipArea {
                 start_x: 0,
                 start_y: 0,
                 width: 100,
                 height: 100,
+            },
+            camera_ccd_info: CCDChipInfo {
+                chip_width: 1920_f64,
+                chip_height: 1080_f64,
+                image_width: 1,
+                image_height: 1,
+                pixel_width: 2.9,
+                pixel_height: 2.9,
+                bits_per_pixel: 16,
             },
         },
     );
@@ -1157,12 +1253,21 @@ async fn set_start_y_fail_set_roi() {
         .returning(|_| Err(eyre!(qhyccd_rs::QHYError::SetRoiError { error_code: 123 })));
     let camera = new_camera(
         mock,
-        MockCameraType::WithRoi {
+        MockCameraType::WithRoiAndCCDInfo {
             camera_roi: CCDChipArea {
                 start_x: 0,
                 start_y: 0,
                 width: 100,
                 height: 100,
+            },
+            camera_ccd_info: CCDChipInfo {
+                chip_width: 1920_f64,
+                chip_height: 1080_f64,
+                image_width: 1,
+                image_height: 1,
+                pixel_width: 2.9,
+                pixel_height: 2.9,
+                bits_per_pixel: 16,
             },
         },
     );
@@ -1191,12 +1296,21 @@ async fn num_x_success() {
     let mock = MockCamera::new();
     let camera = new_camera(
         mock,
-        MockCameraType::WithRoi {
+        MockCameraType::WithRoiAndCCDInfo {
             camera_roi: CCDChipArea {
                 start_x: 0,
                 start_y: 0,
                 width: 100,
                 height: 10,
+            },
+            camera_ccd_info: CCDChipInfo {
+                chip_width: 1920_f64,
+                chip_height: 1080_f64,
+                image_width: 1,
+                image_height: 1,
+                pixel_width: 2.9,
+                pixel_height: 2.9,
+                bits_per_pixel: 16,
             },
         },
     );
@@ -1239,12 +1353,21 @@ async fn set_num_x_success() {
         .returning(|_| Ok(()));
     let camera = new_camera(
         mock,
-        MockCameraType::WithRoi {
+        MockCameraType::WithRoiAndCCDInfo {
             camera_roi: CCDChipArea {
                 start_x: 0,
                 start_y: 0,
                 width: 10,
                 height: 10,
+            },
+            camera_ccd_info: CCDChipInfo {
+                chip_width: 1920_f64,
+                chip_height: 1080_f64,
+                image_width: 1,
+                image_height: 1,
+                pixel_width: 2.9,
+                pixel_height: 2.9,
+                bits_per_pixel: 16,
             },
         },
     );
@@ -1310,12 +1433,21 @@ async fn set_num_x_fail_set_roi() {
         .returning(|_| Err(eyre!(qhyccd_rs::QHYError::SetRoiError { error_code: 123 })));
     let camera = new_camera(
         mock,
-        MockCameraType::WithRoi {
+        MockCameraType::WithRoiAndCCDInfo {
             camera_roi: CCDChipArea {
                 start_x: 0,
                 start_y: 0,
                 width: 10,
                 height: 100,
+            },
+            camera_ccd_info: CCDChipInfo {
+                chip_width: 1920_f64,
+                chip_height: 1080_f64,
+                image_width: 1,
+                image_height: 1,
+                pixel_width: 2.9,
+                pixel_height: 2.9,
+                bits_per_pixel: 16,
             },
         },
     );
@@ -1344,12 +1476,21 @@ async fn num_y_success() {
     let mock = MockCamera::new();
     let camera = new_camera(
         mock,
-        MockCameraType::WithRoi {
+        MockCameraType::WithRoiAndCCDInfo {
             camera_roi: CCDChipArea {
                 start_x: 0,
                 start_y: 0,
                 width: 10,
                 height: 100,
+            },
+            camera_ccd_info: CCDChipInfo {
+                chip_width: 1920_f64,
+                chip_height: 1080_f64,
+                image_width: 1,
+                image_height: 1,
+                pixel_width: 2.9,
+                pixel_height: 2.9,
+                bits_per_pixel: 16,
             },
         },
     );
@@ -1392,12 +1533,21 @@ async fn set_num_y_success() {
         .returning(|_| Ok(()));
     let camera = new_camera(
         mock,
-        MockCameraType::WithRoi {
+        MockCameraType::WithRoiAndCCDInfo {
             camera_roi: CCDChipArea {
                 start_x: 0,
                 start_y: 0,
                 width: 10,
                 height: 10,
+            },
+            camera_ccd_info: CCDChipInfo {
+                chip_width: 1920_f64,
+                chip_height: 1080_f64,
+                image_width: 1,
+                image_height: 1,
+                pixel_width: 2.9,
+                pixel_height: 2.9,
+                bits_per_pixel: 16,
             },
         },
     );
@@ -1463,12 +1613,21 @@ async fn set_num_y_fail_set_roi() {
         .returning(|_| Err(eyre!(qhyccd_rs::QHYError::SetRoiError { error_code: 123 })));
     let camera = new_camera(
         mock,
-        MockCameraType::WithRoi {
+        MockCameraType::WithRoiAndCCDInfo {
             camera_roi: CCDChipArea {
                 start_x: 0,
                 start_y: 0,
                 width: 10,
                 height: 10,
+            },
+            camera_ccd_info: CCDChipInfo {
+                chip_width: 1920_f64,
+                chip_height: 1080_f64,
+                image_width: 1,
+                image_height: 1,
+                pixel_width: 2.9,
+                pixel_height: 2.9,
+                bits_per_pixel: 16,
             },
         },
     );
