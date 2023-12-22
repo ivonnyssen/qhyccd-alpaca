@@ -134,7 +134,7 @@ fn new_camera(mut device: MockCamera, variant: MockCameraType) -> QhyccdCamera {
         }
     }
     QhyccdCamera {
-        unique_id: "test_camera".to_owned(),
+        unique_id: "test-camera".to_owned(),
         name: "QHYCCD-test_camera".to_owned(),
         description: "QHYCCD camera".to_owned(),
         device,
@@ -328,6 +328,17 @@ async fn set_connected_true_success() {
         .withf(|mode| *mode == 0)
         .returning(|_| Ok(()));
     mock.expect_init().once().returning(|| Ok(()));
+    mock.expect_get_ccd_info().once().returning(|| {
+        Ok(CCDChipInfo {
+            chip_width: 7.0,
+            chip_height: 5.0,
+            image_width: 1920,
+            image_height: 1080,
+            pixel_width: 2.9,
+            pixel_height: 2.9,
+            bits_per_pixel: 16,
+        })
+    });
     mock.expect_get_effective_area().times(1).returning(|| {
         Ok(CCDChipArea {
             start_x: 0,
@@ -408,6 +419,17 @@ async fn set_connected_fail_get_effective_area() {
         .withf(|mode| *mode == 0)
         .returning(|_| Ok(()));
     mock.expect_init().once().returning(|| Ok(()));
+    mock.expect_get_ccd_info().once().returning(|| {
+        Ok(CCDChipInfo {
+            chip_width: 7.0,
+            chip_height: 5.0,
+            image_width: 1920,
+            image_height: 1080,
+            pixel_width: 2.9,
+            pixel_height: 2.9,
+            bits_per_pixel: 16,
+        })
+    });
     mock.expect_get_effective_area()
         .once()
         .returning(|| Err(eyre!("could not get effective area")));
@@ -483,38 +505,17 @@ async fn offset_y_success() {
     assert_eq!(res.unwrap(), 0_i32);
 }
 
-/*#[tokio::test]
+#[tokio::test]
 async fn sensor_name_success() {
     //given
-    let mut mock = MockCamera::new();
-    mock.expect_get_model()
-        .once()
-        .returning(|| Ok("test_model".to_owned()));
+    let mock = MockCamera::new();
     let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
     //when
     let res = camera.sensor_name().await;
     assert!(res.is_ok());
-    assert_eq!(res.unwrap(), "test_model");
+    assert_eq!(res.unwrap(), "test");
 }
 
-#[tokio::test]
-async fn sensor_name_fail_get_model() {
-    //given
-    let mut mock = MockCamera::new();
-    mock.expect_get_model()
-        .once()
-        .returning(|| Err(eyre!("Could not get model")));
-    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
-    //when
-    let res = camera.sensor_name().await;
-    //then
-    assert!(res.is_err());
-    assert_eq!(
-        res.err().unwrap().to_string(),
-        ASCOMError::UNSPECIFIED.to_string()
-    );
-}
-*/
 #[tokio::test]
 async fn bin_x_success() {
     //given
@@ -653,6 +654,10 @@ async fn unimplmented_functions() {
     );
     assert_eq!(
         camera.max_adu().await.err().unwrap().to_string(),
+        ASCOMError::NOT_IMPLEMENTED.to_string()
+    );
+    assert_eq!(
+        camera.stop_exposure().await.err().unwrap().to_string(),
         ASCOMError::NOT_IMPLEMENTED.to_string()
     );
 }
@@ -852,10 +857,10 @@ async fn camera_xsize_success() {
                 height: 100,
             },
             camera_ccd_info: CCDChipInfo {
-                chip_width: 1920_f64,
-                chip_height: 1080_f64,
-                image_width: 1,
-                image_height: 1,
+                chip_width: 7.0,
+                chip_height: 5.0,
+                image_width: 1920,
+                image_height: 1080,
                 pixel_width: 2.9,
                 pixel_height: 2.9,
                 bits_per_pixel: 16,
@@ -898,10 +903,10 @@ async fn camera_ysize_success() {
                 height: 100,
             },
             camera_ccd_info: CCDChipInfo {
-                chip_width: 1920_f64,
-                chip_height: 1080_f64,
-                image_width: 1,
-                image_height: 1,
+                chip_width: 7.0,
+                chip_height: 5.0,
+                image_width: 1920,
+                image_height: 1080,
                 pixel_width: 2.9,
                 pixel_height: 2.9,
                 bits_per_pixel: 16,
@@ -944,10 +949,10 @@ async fn start_x_success() {
                 height: 10,
             },
             camera_ccd_info: CCDChipInfo {
-                chip_width: 1920_f64,
-                chip_height: 1080_f64,
-                image_width: 1,
-                image_height: 1,
+                chip_width: 7.0,
+                chip_height: 5.0,
+                image_width: 1920,
+                image_height: 1080,
                 pixel_width: 2.9,
                 pixel_height: 2.9,
                 bits_per_pixel: 16,
@@ -1001,10 +1006,10 @@ async fn set_start_x_success() {
                 height: 100,
             },
             camera_ccd_info: CCDChipInfo {
-                chip_width: 1920_f64,
-                chip_height: 1080_f64,
-                image_width: 1,
-                image_height: 1,
+                chip_width: 7.0,
+                chip_height: 5.0,
+                image_width: 1920,
+                image_height: 1080,
                 pixel_width: 2.9,
                 pixel_height: 2.9,
                 bits_per_pixel: 16,
@@ -1030,14 +1035,33 @@ async fn set_start_x_success() {
 async fn set_start_x_fail_value_too_small() {
     //given
     let mock = MockCamera::new();
-    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 0 });
+    let camera = new_camera(
+        mock,
+        MockCameraType::WithRoiAndCCDInfo {
+            camera_roi: CCDChipArea {
+                start_x: 0,
+                start_y: 0,
+                width: 100,
+                height: 100,
+            },
+            camera_ccd_info: CCDChipInfo {
+                chip_width: 7.0,
+                chip_height: 5.0,
+                image_width: 1920,
+                image_height: 1080,
+                pixel_width: 2.9,
+                pixel_height: 2.9,
+                bits_per_pixel: 16,
+            },
+        },
+    );
     //when
     let res = camera.set_start_x(-1).await;
     //then
     assert!(res.is_err());
     assert_eq!(
         res.err().unwrap().to_string(),
-        ASCOMError::invalid_value("start_x must be >= 0").to_string()
+        ASCOMError::INVALID_VALUE.to_string()
     )
 }
 
@@ -1081,10 +1105,10 @@ async fn set_start_x_fail_set_roi() {
                 height: 100,
             },
             camera_ccd_info: CCDChipInfo {
-                chip_width: 1920_f64,
-                chip_height: 1080_f64,
-                image_width: 1,
-                image_height: 1,
+                chip_width: 7.0,
+                chip_height: 5.0,
+                image_width: 1920,
+                image_height: 1080,
                 pixel_width: 2.9,
                 pixel_height: 2.9,
                 bits_per_pixel: 16,
@@ -1124,10 +1148,10 @@ async fn start_y_success() {
                 height: 10,
             },
             camera_ccd_info: CCDChipInfo {
-                chip_width: 1920_f64,
-                chip_height: 1080_f64,
-                image_width: 1,
-                image_height: 1,
+                chip_width: 7.0,
+                chip_height: 5.0,
+                image_width: 1920,
+                image_height: 1080,
                 pixel_width: 2.9,
                 pixel_height: 2.9,
                 bits_per_pixel: 16,
@@ -1181,10 +1205,10 @@ async fn set_start_y_success() {
                 height: 100,
             },
             camera_ccd_info: CCDChipInfo {
-                chip_width: 1920_f64,
-                chip_height: 1080_f64,
-                image_width: 1,
-                image_height: 1,
+                chip_width: 7.0,
+                chip_height: 5.0,
+                image_width: 1920,
+                image_height: 1080,
                 pixel_width: 2.9,
                 pixel_height: 2.9,
                 bits_per_pixel: 16,
@@ -1210,14 +1234,33 @@ async fn set_start_y_success() {
 async fn set_start_y_fail_value_too_small() {
     //given
     let mock = MockCamera::new();
-    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 0 });
+    let camera = new_camera(
+        mock,
+        MockCameraType::WithRoiAndCCDInfo {
+            camera_roi: CCDChipArea {
+                start_x: 0,
+                start_y: 0,
+                width: 100,
+                height: 100,
+            },
+            camera_ccd_info: CCDChipInfo {
+                chip_width: 7.0,
+                chip_height: 5.0,
+                image_width: 1920,
+                image_height: 1080,
+                pixel_width: 2.9,
+                pixel_height: 2.9,
+                bits_per_pixel: 16,
+            },
+        },
+    );
     //when
     let res = camera.set_start_y(-1).await;
     //then
     assert!(res.is_err());
     assert_eq!(
         res.err().unwrap().to_string(),
-        ASCOMError::invalid_value("start_y must be >= 0").to_string()
+        ASCOMError::INVALID_VALUE.to_string()
     )
 }
 
@@ -1261,10 +1304,10 @@ async fn set_start_y_fail_set_roi() {
                 height: 100,
             },
             camera_ccd_info: CCDChipInfo {
-                chip_width: 1920_f64,
-                chip_height: 1080_f64,
-                image_width: 1,
-                image_height: 1,
+                chip_width: 7.0,
+                chip_height: 5.0,
+                image_width: 1920,
+                image_height: 1080,
                 pixel_width: 2.9,
                 pixel_height: 2.9,
                 bits_per_pixel: 16,
@@ -1304,10 +1347,10 @@ async fn num_x_success() {
                 height: 10,
             },
             camera_ccd_info: CCDChipInfo {
-                chip_width: 1920_f64,
-                chip_height: 1080_f64,
-                image_width: 1,
-                image_height: 1,
+                chip_width: 7.0,
+                chip_height: 5.0,
+                image_width: 1920,
+                image_height: 1080,
                 pixel_width: 2.9,
                 pixel_height: 2.9,
                 bits_per_pixel: 16,
@@ -1361,10 +1404,10 @@ async fn set_num_x_success() {
                 height: 10,
             },
             camera_ccd_info: CCDChipInfo {
-                chip_width: 1920_f64,
-                chip_height: 1080_f64,
-                image_width: 1,
-                image_height: 1,
+                chip_width: 7.0,
+                chip_height: 5.0,
+                image_width: 1920,
+                image_height: 1080,
                 pixel_width: 2.9,
                 pixel_height: 2.9,
                 bits_per_pixel: 16,
@@ -1390,14 +1433,33 @@ async fn set_num_x_success() {
 async fn set_num_x_fail_value_too_small() {
     //given
     let mock = MockCamera::new();
-    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 0 });
+    let camera = new_camera(
+        mock,
+        MockCameraType::WithRoiAndCCDInfo {
+            camera_roi: CCDChipArea {
+                start_x: 0,
+                start_y: 0,
+                width: 10,
+                height: 10,
+            },
+            camera_ccd_info: CCDChipInfo {
+                chip_width: 7.0,
+                chip_height: 5.0,
+                image_width: 1920,
+                image_height: 1080,
+                pixel_width: 2.9,
+                pixel_height: 2.9,
+                bits_per_pixel: 16,
+            },
+        },
+    );
     //when
     let res = camera.set_num_x(-1).await;
     //then
     assert!(res.is_err());
     assert_eq!(
         res.err().unwrap().to_string(),
-        ASCOMError::invalid_value("num_x must be >= 0").to_string()
+        ASCOMError::INVALID_VALUE.to_string()
     )
 }
 
@@ -1441,10 +1503,10 @@ async fn set_num_x_fail_set_roi() {
                 height: 100,
             },
             camera_ccd_info: CCDChipInfo {
-                chip_width: 1920_f64,
-                chip_height: 1080_f64,
-                image_width: 1,
-                image_height: 1,
+                chip_width: 7.0,
+                chip_height: 5.0,
+                image_width: 1920,
+                image_height: 1080,
                 pixel_width: 2.9,
                 pixel_height: 2.9,
                 bits_per_pixel: 16,
@@ -1484,10 +1546,10 @@ async fn num_y_success() {
                 height: 100,
             },
             camera_ccd_info: CCDChipInfo {
-                chip_width: 1920_f64,
-                chip_height: 1080_f64,
-                image_width: 1,
-                image_height: 1,
+                chip_width: 7.0,
+                chip_height: 5.0,
+                image_width: 1920,
+                image_height: 1080,
                 pixel_width: 2.9,
                 pixel_height: 2.9,
                 bits_per_pixel: 16,
@@ -1541,10 +1603,10 @@ async fn set_num_y_success() {
                 height: 10,
             },
             camera_ccd_info: CCDChipInfo {
-                chip_width: 1920_f64,
-                chip_height: 1080_f64,
-                image_width: 1,
-                image_height: 1,
+                chip_width: 7.0,
+                chip_height: 5.0,
+                image_width: 1920,
+                image_height: 1080,
                 pixel_width: 2.9,
                 pixel_height: 2.9,
                 bits_per_pixel: 16,
@@ -1570,14 +1632,33 @@ async fn set_num_y_success() {
 async fn set_num_y_fail_value_too_small() {
     //given
     let mock = MockCamera::new();
-    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 0 });
+    let camera = new_camera(
+        mock,
+        MockCameraType::WithRoiAndCCDInfo {
+            camera_roi: CCDChipArea {
+                start_x: 0,
+                start_y: 0,
+                width: 10,
+                height: 10,
+            },
+            camera_ccd_info: CCDChipInfo {
+                chip_width: 7.0,
+                chip_height: 5.0,
+                image_width: 1920,
+                image_height: 1080,
+                pixel_width: 2.9,
+                pixel_height: 2.9,
+                bits_per_pixel: 16,
+            },
+        },
+    );
     //when
     let res = camera.set_num_y(-1).await;
     //then
     assert!(res.is_err());
     assert_eq!(
         res.err().unwrap().to_string(),
-        ASCOMError::invalid_value("num_y must be >= 0").to_string()
+        ASCOMError::INVALID_VALUE.to_string()
     )
 }
 
@@ -1621,10 +1702,10 @@ async fn set_num_y_fail_set_roi() {
                 height: 10,
             },
             camera_ccd_info: CCDChipInfo {
-                chip_width: 1920_f64,
-                chip_height: 1080_f64,
-                image_width: 1,
-                image_height: 1,
+                chip_width: 7.0,
+                chip_height: 5.0,
+                image_width: 1920,
+                image_height: 1080,
                 pixel_width: 2.9,
                 pixel_height: 2.9,
                 bits_per_pixel: 16,
@@ -1929,37 +2010,6 @@ async fn stop_abort() {
     // when / then
     assert!(!camera.can_stop_exposure().await.unwrap());
     assert!(camera.can_abort_exposure().await.unwrap());
-}
-
-#[tokio::test]
-async fn stop_exposure() {
-    //given
-    let mut mock = MockCamera::new();
-    mock.expect_stop_exposure().once().returning(|| Ok(()));
-    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
-    //when
-    let res = camera.stop_exposure().await;
-    //then
-    assert!(res.is_ok());
-}
-
-#[tokio::test]
-async fn stop_exposure_fail_stop_exposure() {
-    //given
-    let mut mock = MockCamera::new();
-    mock.expect_stop_exposure().once().returning(|| {
-        Err(eyre!(qhyccd_rs::QHYError::StopExposureError {
-            error_code: 123
-        }))
-    });
-    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
-    //when
-    let res = camera.stop_exposure().await;
-    //then
-    assert_eq!(
-        res.err().unwrap().to_string(),
-        ASCOMError::UNSPECIFIED.to_string(),
-    )
 }
 
 #[tokio::test]

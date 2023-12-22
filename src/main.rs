@@ -280,7 +280,7 @@ impl Camera for QhyccdCamera {
             Ok(true) => match self.unique_id().split('-').next() {
                 Some(model) => Ok(model.to_string()),
                 None => {
-                    error!("get_model failed");
+                    error!("camera id should be MODEL-SerialNumber, but split failed");
                     Err(ASCOMError::UNSPECIFIED)
                 }
             },
