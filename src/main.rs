@@ -134,7 +134,11 @@ impl QhyccdCamera {
                         (image.width as usize, image.height as usize, 1),
                         data,
                     ) {
-                        Ok(array_base) => Ok(array_base.into()),
+                        Ok(array_base) => {
+                            let mut swapped = array_base;
+                            swapped.swap_axes(0, 1);
+                            Ok(swapped.into())
+                        }
                         Err(e) => {
                             error!(?e, "could not transform image");
                             Err(eyre!(e))
@@ -152,7 +156,11 @@ impl QhyccdCamera {
                         (image.height as usize, image.width as usize, 1),
                         data,
                     ) {
-                        Ok(array_base) => Ok(array_base.into()),
+                        Ok(array_base) => {
+                            let mut swapped = array_base;
+                            swapped.swap_axes(0, 1);
+                            Ok(swapped.into())
+                        }
                         Err(e) => {
                             error!(?e, "could not transform image");
                             Err(eyre!(e))
