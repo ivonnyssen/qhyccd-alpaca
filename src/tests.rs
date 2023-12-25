@@ -48,6 +48,7 @@ async fn not_connected_asyncs() {
     not_connected! {readout_modes()}
     not_connected! {percent_completed()}
     not_connected! {start_exposure(1.0, true)}
+    not_connected! {max_adu()}
     //not_connected! {stop_exposure()}
     not_connected! {abort_exposure()}
 }
@@ -482,19 +483,27 @@ async fn set_connected_fail_close() {
 }
 
 #[tokio::test]
-async fn offset_x_success() {
+async fn bayer_offset_x_success() {
     //given
-    let mock = MockCamera::new();
-    let camera = new_camera(mock, MockCameraType::Untouched);
+    let mut mock = MockCamera::new();
+    mock.expect_is_control_available()
+        .once()
+        .withf(|control| *control == qhyccd_rs::Control::CamIsColor)
+        .returning(|_| Some(0));
+    mock.expect_is_control_available()
+        .once()
+        .withf(|control| *control == qhyccd_rs::Control::CamColor)
+        .returning(|_| Some(qhyccd_rs::BayerMode::GBRG as u32));
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
     //when
     let res = camera.bayer_offset_x().await;
     //then
     assert!(res.is_ok());
-    assert_eq!(res.unwrap(), 0_i32);
+    assert_eq!(res.unwrap(), 2_i32);
 }
 
 #[tokio::test]
-async fn offset_y_success() {
+async fn bayer_offset_y_success() {
     //given
     let mock = MockCamera::new();
     let camera = new_camera(mock, MockCameraType::Untouched);
@@ -653,13 +662,21 @@ async fn unimplmented_functions() {
         ASCOMError::NOT_IMPLEMENTED.to_string()
     );
     assert_eq!(
-        camera.max_adu().await.err().unwrap().to_string(),
-        ASCOMError::NOT_IMPLEMENTED.to_string()
-    );
-    assert_eq!(
         camera.stop_exposure().await.err().unwrap().to_string(),
         ASCOMError::NOT_IMPLEMENTED.to_string()
     );
+}
+
+#[tokio::test]
+async fn max_adu_success() {
+    //given
+    let mock = MockCamera::new();
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
+    //when
+    let res = camera.max_adu().await;
+    //then
+    assert!(res.is_ok());
+    assert_eq!(res.unwrap(), (65534_i32));
 }
 
 #[tokio::test]

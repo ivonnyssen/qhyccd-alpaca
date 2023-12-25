@@ -149,7 +149,7 @@ impl QhyccdCamera {
                         .map(|a| u16::from_ne_bytes([a[0], a[1]]))
                         .collect();
                     match Array3::from_shape_vec(
-                        (image.width as usize, image.height as usize, 1),
+                        (image.height as usize, image.width as usize, 1),
                         data,
                     ) {
                         Ok(array_base) => Ok(array_base.into()),
@@ -266,7 +266,37 @@ impl Device for QhyccdCamera {
 #[async_trait]
 impl Camera for QhyccdCamera {
     async fn bayer_offset_x(&self) -> ASCOMResult<i32> {
-        Ok(0)
+        match self.connected().await {
+            Ok(true) => match self
+                .device
+                .is_control_available(qhyccd_rs::Control::CamIsColor)
+            {
+                Some(_) => match self
+                    .device
+                    .is_control_available(qhyccd_rs::Control::CamColor)
+                {
+                    Some(bayer_id) => match bayer_id.try_into() {
+                        Ok(qhyccd_rs::BayerMode::GBRG) => Ok(2),
+                        Ok(qhyccd_rs::BayerMode::GRBG) => Ok(3),
+                        Ok(qhyccd_rs::BayerMode::BGGR) => Ok(4),
+                        Ok(qhyccd_rs::BayerMode::RGGB) => Ok(0),
+                        Err(e) => {
+                            error!(?e, "invalid bayer_id from camera");
+                            Err(ASCOMError::INVALID_VALUE)
+                        }
+                    },
+                    None => {
+                        error!("invalid bayer_id from camera");
+                        Err(ASCOMError::INVALID_VALUE)
+                    }
+                },
+                None => Err(ASCOMError::NOT_IMPLEMENTED),
+            },
+            _ => {
+                error!("camera not connected");
+                Err(ASCOMError::NOT_CONNECTED)
+            }
+        }
     }
 
     async fn bayer_offset_y(&self) -> ASCOMResult<i32> {
@@ -508,8 +538,13 @@ impl Camera for QhyccdCamera {
     }
 
     async fn max_adu(&self) -> ASCOMResult<i32> {
-        debug!("max_adu not implemented");
-        Err(ASCOMError::NOT_IMPLEMENTED)
+        match self.connected().await {
+            Ok(true) => Ok(65534_i32),
+            _ => {
+                error!("camera not connected");
+                return Err(ASCOMError::NOT_CONNECTED);
+            }
+        }
     }
 
     async fn camera_xsize(&self) -> ASCOMResult<i32> {
