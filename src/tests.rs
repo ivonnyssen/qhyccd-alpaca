@@ -888,7 +888,7 @@ async fn camera_xsize_success() {
     let res = camera.camera_xsize().await;
     //then
     assert!(res.is_ok());
-    assert_eq!(res.unwrap(), 100_i32);
+    assert_eq!(res.unwrap(), 1920_i32);
 }
 
 #[tokio::test]
@@ -934,7 +934,7 @@ async fn camera_ysize_success() {
     let res = camera.camera_ysize().await;
     //then
     assert!(res.is_ok());
-    assert_eq!(res.unwrap(), 100_i32);
+    assert_eq!(res.unwrap(), 1080_i32);
 }
 
 #[tokio::test]

@@ -28,7 +28,7 @@ cfg_if! {
 
 use tokio::sync::{oneshot, watch};
 use tokio::task;
-use tracing::{debug, error, trace};
+use tracing::{debug, error, instrument, trace};
 
 #[derive(Debug)]
 struct StopExposure {
@@ -124,6 +124,7 @@ impl QhyccdCamera {
         valid_binning_modes
     }
 
+    #[instrument]
     fn transform_image(image: qhyccd_rs::ImageData) -> Result<ImageArray> {
         match image.channels {
             1_u32 => match image.bits_per_pixel {
@@ -557,8 +558,10 @@ impl Camera for QhyccdCamera {
 
     async fn camera_xsize(&self) -> ASCOMResult<i32> {
         match self.connected().await {
-            Ok(true) => match *self.roi.read().await {
-                Some(roi) => Ok(roi.width as i32),
+            Ok(true) => match *self.ccd_info.read().await {
+                Some(ccd_info) => { let bin = *self.binning.read().await;
+                    Ok((ccd_info.image_width as f32 / bin.value() as f32) as i32)
+                },
                 None => Err(ASCOMError::VALUE_NOT_SET),
             },
             _ => {
@@ -570,8 +573,10 @@ impl Camera for QhyccdCamera {
 
     async fn camera_ysize(&self) -> ASCOMResult<i32> {
         match self.connected().await {
-            Ok(true) => match *self.roi.read().await {
-                Some(roi) => Ok(roi.height as i32),
+            Ok(true) => match *self.ccd_info.read().await {
+                Some(ccd_info) => { let bin = *self.binning.read().await;
+                    Ok((ccd_info.image_height as f32 / bin.value() as f32) as i32)
+                },
                 None => Err(ASCOMError::VALUE_NOT_SET),
             },
             _ => {
