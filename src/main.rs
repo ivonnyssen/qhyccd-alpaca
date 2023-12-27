@@ -934,7 +934,7 @@ impl Camera for QhyccdCamera {
                 if self.num_y().await?
                     > (self.camera_ysize().await? as f32 / self.bin_y().await? as f32) as i32
                 {
-                    return Err(ASCOMError::invalid_value("StartY > NumY"));
+                    return Err(ASCOMError::invalid_value("NumY > CameraYSize"));
                 }
                 let exposure_us = (duration * 1_000_000_f64) as u32;
                 let (stop_tx, stop_rx) = oneshot::channel::<StopExposure>();
