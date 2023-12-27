@@ -124,6 +124,8 @@ impl QhyccdCamera {
         valid_binning_modes
     }
 
+    //TODO: need to probably mutate the image here to always match RGGB in all bin variants and
+    //bayer modes
     fn transform_image(image: qhyccd_rs::ImageData) -> Result<ImageArray> {
         match image.channels {
             1_u32 => match image.bits_per_pixel {
@@ -936,6 +938,19 @@ impl Camera for QhyccdCamera {
                 {
                     return Err(ASCOMError::invalid_value("NumY > CameraYSize"));
                 }
+                match *self.intended_roi.read().await {
+                    Some(roi) => match self.device.set_roi(roi) {
+                        Ok(_) => {}
+                        Err(e) => {
+                            debug!(?e, "failed to set ROI");
+                            return Err(ASCOMError::invalid_value("failed to set ROI"));
+                        }
+                    },
+                    None => {
+                        debug!("no roi defined, but trying to start exposure");
+                        return Err(ASCOMError::invalid_value("no ROI defined for camera"));
+                    }
+                };
                 let exposure_us = (duration * 1_000_000_f64) as u32;
                 let (stop_tx, stop_rx) = oneshot::channel::<StopExposure>();
                 let (done_tx, done_rx) = watch::channel(false);
