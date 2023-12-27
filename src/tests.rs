@@ -51,6 +51,8 @@ async fn not_connected_asyncs() {
     not_connected! {max_adu()}
     //not_connected! {stop_exposure()}
     not_connected! {abort_exposure()}
+    not_connected! {pixel_size_x()}
+    not_connected! {pixel_size_y()}
 }
 
 enum MockCameraType {
@@ -2397,5 +2399,97 @@ async fn start_exposure_get_single_frame_no_miri() {
     assert_eq!(
         res.err().unwrap().to_string(),
         ASCOMError::UNSPECIFIED.to_string(),
+    )
+}
+
+#[tokio::test]
+async fn pixel_size_x_success() {
+    //given
+    let mock = MockCamera::new();
+    let camera = new_camera(
+        mock,
+        MockCameraType::WithRoiAndCCDInfo {
+            camera_roi: CCDChipArea {
+                start_x: 0,
+                start_y: 0,
+                width: 100,
+                height: 100,
+            },
+            camera_ccd_info: CCDChipInfo {
+                chip_width: 7.0,
+                chip_height: 5.0,
+                image_width: 1920,
+                image_height: 1080,
+                pixel_width: 2.5,
+                pixel_height: 2.9,
+                bits_per_pixel: 16,
+            },
+        },
+    );
+    //when
+    let res = camera.pixel_size_x().await;
+    //then
+    assert!(res.is_ok());
+    assert_eq!(res.unwrap(), 2.5_f64);
+}
+
+#[tokio::test]
+async fn pixel_size_x_fail_no_ccd_info() {
+    //given
+    let mock = MockCamera::new();
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
+    //when
+    let res = camera.pixel_size_x().await;
+    //then
+    assert!(res.is_err());
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::VALUE_NOT_SET.to_string()
+    )
+}
+
+#[tokio::test]
+async fn pixel_size_y_success() {
+    //given
+    let mock = MockCamera::new();
+    let camera = new_camera(
+        mock,
+        MockCameraType::WithRoiAndCCDInfo {
+            camera_roi: CCDChipArea {
+                start_x: 0,
+                start_y: 0,
+                width: 100,
+                height: 100,
+            },
+            camera_ccd_info: CCDChipInfo {
+                chip_width: 7.0,
+                chip_height: 5.0,
+                image_width: 1920,
+                image_height: 1080,
+                pixel_width: 2.5,
+                pixel_height: 2.9,
+                bits_per_pixel: 16,
+            },
+        },
+    );
+    //when
+    let res = camera.pixel_size_y().await;
+    //then
+    assert!(res.is_ok());
+    assert_eq!(res.unwrap(), 2.9_f64);
+}
+
+#[tokio::test]
+async fn pixel_size_y_fail_no_ccd_info() {
+    //given
+    let mock = MockCamera::new();
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
+    //when
+    let res = camera.pixel_size_y().await;
+    //then
+    assert!(res.is_err());
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::VALUE_NOT_SET.to_string()
     )
 }
