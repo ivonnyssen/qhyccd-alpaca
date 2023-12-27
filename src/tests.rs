@@ -672,13 +672,17 @@ async fn unimplmented_functions() {
 #[tokio::test]
 async fn max_adu_success() {
     //given
-    let mock = MockCamera::new();
+    let mut mock = MockCamera::new();
+    mock.expect_get_parameter()
+        .once()
+        .withf(|control| *control == qhyccd_rs::Control::OutputDataActualBits)
+        .returning(|_| Ok(12_f64));
     let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
     //when
     let res = camera.max_adu().await;
     //then
     assert!(res.is_ok());
-    assert_eq!(res.unwrap(), (65534_i32));
+    assert_eq!(res.unwrap(), (4096_i32)); //2 to the power of 12
 }
 
 #[tokio::test]

@@ -405,13 +405,12 @@ impl Camera for QhyccdCamera {
             },
             _ => {
                 error!("camera not connected");
-                return Err(ASCOMError::NOT_CONNECTED);
+                Err(ASCOMError::NOT_CONNECTED)
             }
         }
     }
 
     async fn electrons_per_adu(&self) -> ASCOMResult<f64> {
-        debug!("electrons_per_adu not implemented");
         Err(ASCOMError::NOT_IMPLEMENTED)
     }
 
@@ -547,10 +546,22 @@ impl Camera for QhyccdCamera {
 
     async fn max_adu(&self) -> ASCOMResult<i32> {
         match self.connected().await {
-            Ok(true) => Ok(65534_i32),
+            Ok(true) => match self
+                .device
+                .get_parameter(qhyccd_rs::Control::OutputDataActualBits)
+            {
+                Ok(bits) => {
+                    debug!(?bits, "ADU");
+                    Ok(2_i32.pow(bits as u32))
+                }
+                Err(e) => {
+                    error!(?e, "could not get OutputDataActualBits");
+                    Err(ASCOMError::VALUE_NOT_SET)
+                }
+            },
             _ => {
                 error!("camera not connected");
-                return Err(ASCOMError::NOT_CONNECTED);
+                Err(ASCOMError::NOT_CONNECTED)
             }
         }
     }
@@ -581,6 +592,7 @@ impl Camera for QhyccdCamera {
         }
     }
 
+    //TODO: this value should be in binned pixels
     async fn start_x(&self) -> ASCOMResult<i32> {
         match self.connected().await {
             Ok(true) => match *self.roi.read().await {
@@ -594,6 +606,7 @@ impl Camera for QhyccdCamera {
         }
     }
 
+    //TODO: this value should be in binned pixels
     async fn set_start_x(&self, start_x: i32) -> ASCOMResult {
         match self.connected().await {
             Ok(true) => {
@@ -638,6 +651,7 @@ impl Camera for QhyccdCamera {
         }
     }
 
+    //TODO: this value should be in binned pixels
     async fn start_y(&self) -> ASCOMResult<i32> {
         match self.connected().await {
             Ok(true) => match *self.roi.read().await {
@@ -651,6 +665,7 @@ impl Camera for QhyccdCamera {
         }
     }
 
+    //TODO: this value should be in binned pixels
     async fn set_start_y(&self, start_y: i32) -> ASCOMResult {
         match self.connected().await {
             Ok(true) => {
@@ -695,6 +710,7 @@ impl Camera for QhyccdCamera {
         }
     }
 
+    //TODO: this value should be in binned pixels
     async fn num_x(&self) -> ASCOMResult<i32> {
         match self.connected().await {
             Ok(true) => match *self.roi.read().await {
@@ -708,6 +724,7 @@ impl Camera for QhyccdCamera {
         }
     }
 
+    //TODO: this value should be in binned pixels
     async fn set_num_x(&self, num_x: i32) -> ASCOMResult {
         match self.connected().await {
             Ok(true) => {
@@ -758,6 +775,7 @@ impl Camera for QhyccdCamera {
         }
     }
 
+    //TODO: this value should be in binned pixels
     async fn num_y(&self) -> ASCOMResult<i32> {
         match self.connected().await {
             Ok(true) => match *self.roi.read().await {
@@ -771,6 +789,7 @@ impl Camera for QhyccdCamera {
         }
     }
 
+    //TODO: this value should be in binned pixels
     async fn set_num_y(&self, num_y: i32) -> ASCOMResult {
         match self.connected().await {
             Ok(true) => {
@@ -1106,6 +1125,10 @@ impl Camera for QhyccdCamera {
     }
 
     async fn can_get_cooler_power(&self) -> ASCOMResult<bool> {
+        self.can_set_ccd_temperature().await
+    }
+
+    async fn can_set_ccd_temperature(&self) -> ASCOMResult<bool> {
         match self.connected().await {
             Ok(true) => match self.device.is_control_available(qhyccd_rs::Control::Cooler) {
                 Some(_) => Ok(true),
@@ -1113,19 +1136,6 @@ impl Camera for QhyccdCamera {
                     debug!("no cooler");
                     Ok(false)
                 }
-            },
-            _ => {
-                error!("camera not connected");
-                return Err(ASCOMError::NOT_CONNECTED);
-            }
-        }
-    }
-
-    async fn can_set_ccd_temperature(&self) -> ASCOMResult<bool> {
-        match self.connected().await {
-            Ok(true) => match self.device.is_control_available(qhyccd_rs::Control::Cooler) {
-                Some(_) => Ok(true),
-                None => Ok(false),
             },
             _ => {
                 error!("camera not connected");
@@ -1145,7 +1155,32 @@ impl Camera for QhyccdCamera {
                     }
                 },
                 None => {
-                    debug!("cannot control temp, probably no cooler");
+                    debug!("no cooler");
+                    Err(ASCOMError::NOT_IMPLEMENTED)
+                }
+            },
+            _ => {
+                error!("camera not connected");
+                return Err(ASCOMError::NOT_CONNECTED);
+            }
+        }
+    }
+
+    /// Returns the current camera cooler setpoint in degrees Celsius.
+    async fn set_ccd_temperature(&self) -> ASCOMResult<f64> {
+        Err(ASCOMError::NOT_IMPLEMENTED)
+    }
+
+    /// Set's the camera's cooler setpoint in degrees Celsius.
+    async fn set_set_ccd_temperature(&self, set_ccd_temperature: f64) -> ASCOMResult {
+        match self.connected().await {
+            Ok(true) => match self
+                .device
+                .set_parameter(qhyccd_rs::Control::Cooler, set_ccd_temperature)
+            {
+                Ok(_) => Ok(()),
+                Err(e) => {
+                    error!(?e, "could not set target temperature");
                     Err(ASCOMError::INVALID_VALUE)
                 }
             },
@@ -1165,13 +1200,13 @@ impl Camera for QhyccdCamera {
                         false => Ok(false),
                     },
                     Err(e) => {
-                        error!(?e, "could not get current temperature");
+                        error!(?e, "could not get current power");
                         Err(ASCOMError::INVALID_VALUE)
                     }
                 },
                 None => {
                     debug!("cannot control temp, probably no cooler");
-                    Err(ASCOMError::INVALID_VALUE)
+                    Err(ASCOMError::NOT_IMPLEMENTED)
                 }
             },
             _ => {
@@ -1191,7 +1226,7 @@ impl Camera for QhyccdCamera {
                     Ok(false) => {
                         match self
                             .device
-                            .set_parameter(qhyccd_rs::Control::ManualPWM, 1_f64)
+                            .set_parameter(qhyccd_rs::Control::ManualPWM, 1_f64 / 100_f64 * 255_f64)
                         {
                             Ok(_) => Ok(()),
                             Err(e) => {
@@ -1201,7 +1236,7 @@ impl Camera for QhyccdCamera {
                         }
                     }
                     Err(e) => {
-                        error!(?e, "cold not set cooler");
+                        error!(?e, "could not turn cooler on");
                         Err(e)
                     }
                 }
@@ -1215,7 +1250,7 @@ impl Camera for QhyccdCamera {
                         {
                             Ok(_) => Ok(()),
                             Err(e) => {
-                                error!(?e, "error setting cooler power to 1");
+                                error!(?e, "error setting cooler power to 0");
                                 Err(ASCOMError::INVALID_OPERATION)
                             }
                         }
@@ -1224,10 +1259,32 @@ impl Camera for QhyccdCamera {
                         Ok(()) //nothing to do here
                     }
                     Err(e) => {
-                        error!(?e, "cold not set cooler");
+                        error!(?e, "could not turn cooler off");
                         Err(e)
                     }
                 }
+            }
+        }
+    }
+
+    async fn cooler_power(&self) -> ASCOMResult<f64> {
+        match self.connected().await {
+            Ok(true) => match self.device.is_control_available(qhyccd_rs::Control::Cooler) {
+                Some(_) => match self.device.get_parameter(qhyccd_rs::Control::CurPWM) {
+                    Ok(cooler_power) => Ok(cooler_power / 255_f64 * 100_f64),
+                    Err(e) => {
+                        error!(?e, "could not get current temperature");
+                        Err(ASCOMError::INVALID_VALUE)
+                    }
+                },
+                None => {
+                    debug!("no cooler");
+                    Err(ASCOMError::NOT_IMPLEMENTED)
+                }
+            },
+            _ => {
+                error!("camera not connected");
+                return Err(ASCOMError::NOT_CONNECTED);
             }
         }
     }
