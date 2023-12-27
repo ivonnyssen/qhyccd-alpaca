@@ -308,7 +308,19 @@ impl Camera for QhyccdCamera {
     }
 
     async fn bayer_offset_y(&self) -> ASCOMResult<i32> {
-        Ok(0)
+        match self.connected().await {
+            Ok(true) => match self
+                .device
+                .is_control_available(qhyccd_rs::Control::CamIsColor)
+            {
+                Some(_) => Ok(0),
+                None => Err(ASCOMError::NOT_IMPLEMENTED),
+            },
+            _ => {
+                error!("camera not connected");
+                Err(ASCOMError::NOT_CONNECTED)
+            }
+        }
     }
 
     async fn sensor_name(&self) -> ASCOMResult<String> {
@@ -908,6 +920,22 @@ impl Camera for QhyccdCamera {
         }
         match self.connected().await {
             Ok(true) => {
+                if self.start_x().await? > self.num_x().await? {
+                    return Err(ASCOMError::invalid_value("StartX > NumX"));
+                }
+                if self.start_y().await? > self.num_y().await? {
+                    return Err(ASCOMError::invalid_value("StartY > NumY"));
+                }
+                if self.num_x().await?
+                    > (self.camera_xsize().await? as f32 / self.bin_x().await? as f32) as i32
+                {
+                    return Err(ASCOMError::invalid_value("NumX > CameraXSize"));
+                }
+                if self.num_y().await?
+                    > (self.camera_ysize().await? as f32 / self.bin_y().await? as f32) as i32
+                {
+                    return Err(ASCOMError::invalid_value("StartY > NumY"));
+                }
                 let exposure_us = (duration * 1_000_000_f64) as u32;
                 let (stop_tx, stop_rx) = oneshot::channel::<StopExposure>();
                 let (done_tx, done_rx) = watch::channel(false);
@@ -1130,17 +1158,26 @@ impl Camera for QhyccdCamera {
         Err(ASCOMError::NOT_IMPLEMENTED)
     }
 
-    /// Set's the camera's cooler setpoint in degrees Celsius.
     async fn set_set_ccd_temperature(&self, set_ccd_temperature: f64) -> ASCOMResult {
+        //ASCOM checks
+        if !(-273.15..=80_f64).contains(&set_ccd_temperature) {
+            return Err(ASCOMError::INVALID_VALUE);
+        }
         match self.connected().await {
-            Ok(true) => match self
-                .device
-                .set_parameter(qhyccd_rs::Control::Cooler, set_ccd_temperature)
-            {
-                Ok(_) => Ok(()),
-                Err(e) => {
-                    error!(?e, "could not set target temperature");
-                    Err(ASCOMError::INVALID_VALUE)
+            Ok(true) => match self.device.is_control_available(qhyccd_rs::Control::Cooler) {
+                Some(_) => match self
+                    .device
+                    .set_parameter(qhyccd_rs::Control::Cooler, set_ccd_temperature)
+                {
+                    Ok(_) => Ok(()),
+                    Err(e) => {
+                        error!(?e, "could not set target temperature");
+                        Err(ASCOMError::INVALID_VALUE)
+                    }
+                },
+                None => {
+                    debug!("no cooler");
+                    Err(ASCOMError::NOT_IMPLEMENTED)
                 }
             },
             _ => {
