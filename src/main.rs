@@ -68,7 +68,7 @@ struct QhyccdCamera {
     binning: RwLock<BinningMode>,
     valid_bins: RwLock<Option<Vec<BinningMode>>>,
     ccd_info: RwLock<Option<CCDChipInfo>>,
-    roi: RwLock<Option<qhyccd_rs::CCDChipArea>>,
+    intended_roi: RwLock<Option<qhyccd_rs::CCDChipArea>>,
     exposure_min_max_step: RwLock<Option<(f64, f64, f64)>>,
     last_exposure_start_time: RwLock<Option<SystemTime>>,
     last_exposure_duration_us: RwLock<Option<u32>>,
@@ -228,7 +228,7 @@ impl Device for QhyccdCamera {
                             None
                         }
                     };
-                    let mut lock = self.roi.write().await;
+                    let mut lock = self.intended_roi.write().await;
                     *lock = match self.device.get_effective_area() {
                         Ok(area) => Some(area),
                         Err(e) => {
@@ -344,19 +344,37 @@ impl Camera for QhyccdCamera {
             return Err(ASCOMError::invalid_value("bin value must be >= 1"));
         }
         match self.connected().await {
-            Ok(true) => match self.device.set_bin_mode(bin_x as u32, bin_x as u32) {
-                //only supports symmetric binning
-                Ok(_) => {
-                    *self.binning.write().await = BinningMode {
-                        symmetric_value: bin_x,
-                    };
-                    Ok(())
+            Ok(true) => {
+                let mut lock = self.binning.write().await;
+                match lock.symmetric_value == bin_x {
+                    true => Ok(()),
+                    false => {
+                        match self.device.set_bin_mode(bin_x as u32, bin_x as u32) {
+                            Ok(_) => {
+                                //adjust start and num values
+                                let old = lock.symmetric_value;
+                                *lock = BinningMode {
+                                    symmetric_value: bin_x,
+                                };
+                                let mut roi_lock = self.intended_roi.write().await;
+                                *roi_lock = roi_lock.map(|roi| CCDChipArea {
+                                    start_x: (roi.start_x as f32 * old as f32 / bin_x as f32)
+                                        as u32,
+                                    start_y: (roi.start_y as f32 * old as f32 / bin_x as f32)
+                                        as u32,
+                                    width: (roi.width as f32 * old as f32 / bin_x as f32) as u32,
+                                    height: (roi.height as f32 * old as f32 / bin_x as f32) as u32,
+                                });
+                                Ok(())
+                            }
+                            Err(e) => {
+                                error!(?e, "set_bin_mode failed");
+                                Err(ASCOMError::VALUE_NOT_SET)
+                            }
+                        }
+                    }
                 }
-                Err(e) => {
-                    error!(?e, "set_bin_mode failed");
-                    Err(ASCOMError::VALUE_NOT_SET)
-                }
-            },
+            }
             _ => {
                 error!("camera not connected");
                 return Err(ASCOMError::NOT_CONNECTED);
@@ -592,10 +610,9 @@ impl Camera for QhyccdCamera {
         }
     }
 
-    //TODO: this value should be in binned pixels
     async fn start_x(&self) -> ASCOMResult<i32> {
         match self.connected().await {
-            Ok(true) => match *self.roi.read().await {
+            Ok(true) => match *self.intended_roi.read().await {
                 Some(roi) => Ok(roi.start_x as i32),
                 None => Err(ASCOMError::VALUE_NOT_SET),
             },
@@ -606,43 +623,32 @@ impl Camera for QhyccdCamera {
         }
     }
 
-    //TODO: this value should be in binned pixels
     async fn set_start_x(&self, start_x: i32) -> ASCOMResult {
+        if start_x < 0 {
+            return Err(ASCOMError::INVALID_VALUE);
+        }
         match self.connected().await {
             Ok(true) => {
-                match *self.ccd_info.read().await {
-                    Some(info) => {
-                        if start_x < 0_i32 || start_x >= info.image_width as i32 {
-                            return Err(ASCOMError::INVALID_VALUE);
-                        }
-                    }
+                let mut lock = self.intended_roi.write().await;
+                *lock = match *lock {
+                    Some(intended_roi) => Some(CCDChipArea {
+                        start_x: start_x as u32,
+                        ..intended_roi
+                    }),
                     None => {
-                        error!(
-                            "should have CCDChipInfo but don't, even though camera is connected"
-                        );
-                        return Err(ASCOMError::VALUE_NOT_SET);
+                        let width =
+                            (self.camera_xsize().await? as f32 / self.bin_x().await? as f32) as u32;
+                        let height =
+                            (self.camera_ysize().await? as f32 / self.bin_y().await? as f32) as u32;
+                        Some(CCDChipArea {
+                            start_x: start_x as u32,
+                            start_y: 0_u32,
+                            width,
+                            height,
+                        })
                     }
                 };
-                let mut roi = match *self.roi.write().await {
-                    Some(roi) => roi,
-                    None => return Err(ASCOMError::VALUE_NOT_SET),
-                };
-
-                roi = CCDChipArea {
-                    start_x: start_x as u32,
-                    ..roi
-                };
-
-                match self.device.set_roi(roi) {
-                    Ok(_) => {
-                        *self.roi.write().await = Some(roi);
-                        Ok(())
-                    }
-                    Err(e) => {
-                        error!(?e, "set_roi failed");
-                        Err(ASCOMError::VALUE_NOT_SET)
-                    }
-                }
+                Ok(())
             }
             _ => {
                 error!("camera not connected");
@@ -651,10 +657,9 @@ impl Camera for QhyccdCamera {
         }
     }
 
-    //TODO: this value should be in binned pixels
     async fn start_y(&self) -> ASCOMResult<i32> {
         match self.connected().await {
-            Ok(true) => match *self.roi.read().await {
+            Ok(true) => match *self.intended_roi.read().await {
                 Some(roi) => Ok(roi.start_y as i32),
                 None => Err(ASCOMError::VALUE_NOT_SET),
             },
@@ -665,43 +670,32 @@ impl Camera for QhyccdCamera {
         }
     }
 
-    //TODO: this value should be in binned pixels
     async fn set_start_y(&self, start_y: i32) -> ASCOMResult {
+        if start_y < 0 {
+            return Err(ASCOMError::INVALID_VALUE);
+        }
         match self.connected().await {
             Ok(true) => {
-                match *self.ccd_info.read().await {
-                    Some(info) => {
-                        if start_y < 0_i32 || start_y >= info.image_width as i32 {
-                            return Err(ASCOMError::INVALID_VALUE);
-                        }
-                    }
+                let mut lock = self.intended_roi.write().await;
+                *lock = match *lock {
+                    Some(intended_roi) => Some(CCDChipArea {
+                        start_y: start_y as u32,
+                        ..intended_roi
+                    }),
                     None => {
-                        error!(
-                            "should have CCDChipInfo but don't, even though camera is connected"
-                        );
-                        return Err(ASCOMError::VALUE_NOT_SET);
+                        let width =
+                            (self.camera_xsize().await? as f32 / self.bin_x().await? as f32) as u32;
+                        let height =
+                            (self.camera_ysize().await? as f32 / self.bin_y().await? as f32) as u32;
+                        Some(CCDChipArea {
+                            start_x: 0_u32,
+                            start_y: start_y as u32,
+                            width,
+                            height,
+                        })
                     }
                 };
-                let mut roi = match *self.roi.write().await {
-                    Some(roi) => roi,
-                    None => return Err(ASCOMError::VALUE_NOT_SET),
-                };
-
-                roi = CCDChipArea {
-                    start_y: start_y as u32,
-                    ..roi
-                };
-
-                match self.device.set_roi(roi) {
-                    Ok(_) => {
-                        *self.roi.write().await = Some(roi);
-                        Ok(())
-                    }
-                    Err(e) => {
-                        error!(?e, "set_roi failed");
-                        Err(ASCOMError::VALUE_NOT_SET)
-                    }
-                }
+                Ok(())
             }
             _ => {
                 error!("camera not connected");
@@ -710,10 +704,9 @@ impl Camera for QhyccdCamera {
         }
     }
 
-    //TODO: this value should be in binned pixels
     async fn num_x(&self) -> ASCOMResult<i32> {
         match self.connected().await {
-            Ok(true) => match *self.roi.read().await {
+            Ok(true) => match *self.intended_roi.read().await {
                 Some(roi) => Ok(roi.width as i32),
                 None => Err(ASCOMError::VALUE_NOT_SET),
             },
@@ -724,49 +717,30 @@ impl Camera for QhyccdCamera {
         }
     }
 
-    //TODO: this value should be in binned pixels
     async fn set_num_x(&self, num_x: i32) -> ASCOMResult {
+        if num_x < 0 {
+            return Err(ASCOMError::INVALID_VALUE);
+        }
         match self.connected().await {
             Ok(true) => {
-                match *self.ccd_info.read().await {
-                    Some(info) => {
-                        let bin = *self.binning.read().await;
-                        if num_x < 0_i32
-                            || num_x > (info.image_width as f32 / bin.symmetric_value as f32) as i32
-                        {
-                            return Err(ASCOMError::INVALID_VALUE);
-                        }
-                    }
+                let mut lock = self.intended_roi.write().await;
+                *lock = match *lock {
+                    Some(intended_roi) => Some(CCDChipArea {
+                        width: num_x as u32,
+                        ..intended_roi
+                    }),
                     None => {
-                        error!(
-                            "should have CCDChipInfo but don't, even though camera is connected"
-                        );
-                        return Err(ASCOMError::VALUE_NOT_SET);
+                        let height =
+                            (self.camera_ysize().await? as f32 / self.bin_y().await? as f32) as u32;
+                        Some(CCDChipArea {
+                            start_x: 0_u32,
+                            start_y: 0_u32,
+                            width: num_x as u32,
+                            height,
+                        })
                     }
                 };
-                let mut roi = match *self.roi.write().await {
-                    Some(roi) => roi,
-                    None => {
-                        error!("roi should be initialized, as camera is connected, but it is stil None");
-                        return Err(ASCOMError::VALUE_NOT_SET);
-                    }
-                };
-
-                roi = CCDChipArea {
-                    width: num_x as u32,
-                    ..roi
-                };
-
-                match self.device.set_roi(roi) {
-                    Ok(_) => {
-                        *self.roi.write().await = Some(roi);
-                        Ok(())
-                    }
-                    Err(e) => {
-                        error!(?e, "set_roi failed");
-                        Err(ASCOMError::VALUE_NOT_SET)
-                    }
-                }
+                Ok(())
             }
             _ => {
                 error!("camera not connected");
@@ -775,10 +749,9 @@ impl Camera for QhyccdCamera {
         }
     }
 
-    //TODO: this value should be in binned pixels
     async fn num_y(&self) -> ASCOMResult<i32> {
         match self.connected().await {
-            Ok(true) => match *self.roi.read().await {
+            Ok(true) => match *self.intended_roi.read().await {
                 Some(roi) => Ok(roi.height as i32),
                 None => Err(ASCOMError::VALUE_NOT_SET),
             },
@@ -789,49 +762,35 @@ impl Camera for QhyccdCamera {
         }
     }
 
-    //TODO: this value should be in binned pixels
     async fn set_num_y(&self, num_y: i32) -> ASCOMResult {
+        if num_y < 0 {
+            return Err(ASCOMError::INVALID_VALUE);
+        }
         match self.connected().await {
             Ok(true) => {
-                match *self.ccd_info.read().await {
-                    Some(info) => {
-                        let bin = *self.binning.read().await;
-                        if num_y < 0_i32
-                            || num_y
-                                > (info.image_height as f32 / bin.symmetric_value as f32) as i32
-                        {
-                            return Err(ASCOMError::INVALID_VALUE);
-                        }
-                    }
+                let mut lock = self.intended_roi.write().await;
+                *lock = match *lock {
+                    Some(intended_roi) => Some(CCDChipArea {
+                        height: num_y as u32,
+                        ..intended_roi
+                    }),
                     None => {
-                        error!(
-                            "should have CCDChipInfo but don't, even though camera is connected"
-                        );
-                        return Err(ASCOMError::VALUE_NOT_SET);
+                        let width =
+                            (self.camera_xsize().await? as f32 / self.bin_x().await? as f32) as u32;
+                        Some(CCDChipArea {
+                            start_x: 0_u32,
+                            start_y: 0_u32,
+                            width,
+                            height: num_y as u32,
+                        })
                     }
                 };
-                let mut roi = match *self.roi.write().await {
-                    Some(roi) => roi,
-                    None => return Err(ASCOMError::VALUE_NOT_SET),
-                };
-
-                roi = CCDChipArea {
-                    height: num_y as u32,
-                    ..roi
-                };
-
-                match self.device.set_roi(roi) {
-                    Ok(_) => {
-                        *self.roi.write().await = Some(roi);
-                        Ok(())
-                    }
-                    Err(e) => {
-                        error!(?e, "set_roi failed");
-                        Err(ASCOMError::VALUE_NOT_SET)
-                    }
-                }
+                Ok(())
             }
-            _ => return Err(ASCOMError::NOT_CONNECTED),
+            _ => {
+                error!("camera not connected");
+                return Err(ASCOMError::NOT_CONNECTED);
+            }
         }
     }
 
@@ -1318,7 +1277,7 @@ async fn main() -> eyre::Result<std::convert::Infallible> {
             binning: RwLock::new(BinningMode { symmetric_value: 1 }),
             valid_bins: RwLock::new(None),
             ccd_info: RwLock::new(None),
-            roi: RwLock::new(None),
+            intended_roi: RwLock::new(None),
             exposure_min_max_step: RwLock::new(None),
             last_exposure_start_time: RwLock::new(None),
             last_exposure_duration_us: RwLock::new(None),
