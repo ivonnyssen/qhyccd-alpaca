@@ -113,6 +113,7 @@ fn new_camera(mut device: MockCamera, variant: MockCameraType) -> QhyccdCamera {
     let mut last_exposure_duration_us = RwLock::new(None);
     let mut last_image = RwLock::new(None);
     let mut gain_min_max = RwLock::new(None);
+    let mut offset_min_max = RwLock::new(None);
     match variant {
         MockCameraType::IsOpenTrue { times } => {
             device.expect_is_open().times(times).returning(|| Ok(true));
@@ -204,6 +205,7 @@ fn new_camera(mut device: MockCamera, variant: MockCameraType) -> QhyccdCamera {
         last_image,
         state: exposing,
         gain_min_max,
+        offset_min_max,
     }
 }
 
@@ -232,6 +234,7 @@ async fn qhyccd_camera() {
         last_image: RwLock::new(None),
         state: RwLock::new(State::Idle),
         gain_min_max: RwLock::new(None),
+        offset_min_max: RwLock::new(None),
     };
     //then
     assert_eq!(camera.unique_id, "test_camera");

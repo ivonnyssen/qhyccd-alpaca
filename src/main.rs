@@ -76,6 +76,7 @@ struct QhyccdCamera {
     last_image: RwLock<Option<ImageArray>>,
     state: RwLock<State>,
     gain_min_max: RwLock<Option<(f64, f64)>>,
+    offset_min_max: RwLock<Option<(f64, f64)>>,
 }
 
 impl QhyccdCamera {
@@ -268,6 +269,24 @@ impl Device for QhyccdCamera {
                         }
                         None => {
                             debug!("gain control not available");
+                        }
+                    }
+                    match self.device.is_control_available(qhyccd_rs::Control::Offset) {
+                        Some(_) => {
+                            let mut lock = self.offset_min_max.write().await;
+                            *lock = match self
+                                .device
+                                .get_parameter_min_max_step(qhyccd_rs::Control::Offset)
+                            {
+                                Ok((min, max, _step)) => Some((min, max)),
+                                Err(e) => {
+                                    error!(?e, "get_offset_min_max failed");
+                                    None
+                                }
+                            };
+                        }
+                        None => {
+                            debug!("offset control not available");
                         }
                     }
                     Ok(())
@@ -1409,6 +1428,79 @@ impl Camera for QhyccdCamera {
             .map(|(min, _max)| min as i32)
             .ok_or(ASCOMError::NOT_IMPLEMENTED)
     }
+
+    async fn offset(&self) -> ASCOMResult<i32> {
+        match self.connected().await {
+            Ok(true) => match self.device.is_control_available(qhyccd_rs::Control::Offset) {
+                Some(_) => match self.device.get_parameter(qhyccd_rs::Control::Offset) {
+                    Ok(offset) => Ok(offset as i32),
+                    Err(e) => {
+                        error!(?e, "failed to set offset");
+                        Err(ASCOMError::UNSPECIFIED)
+                    }
+                },
+                None => {
+                    debug!("offset control not available");
+                    Err(ASCOMError::NOT_IMPLEMENTED)
+                }
+            },
+            _ => {
+                error!("camera not connected");
+                Err(ASCOMError::NOT_CONNECTED)
+            }
+        }
+    }
+
+    async fn set_offset(&self, offset: i32) -> ASCOMResult {
+        match self.connected().await {
+            Ok(true) => match self.device.is_control_available(qhyccd_rs::Control::Offset) {
+                Some(_) => {
+                    let (min, max) = self
+                        .offset_min_max
+                        .read()
+                        .await
+                        .ok_or(ASCOMError::unspecified("gamera reports offset control avaialbe, but min, max values are not set after initialization"))?;
+                    if !(min as i32..=max as i32).contains(&offset) {
+                        return Err(ASCOMError::INVALID_VALUE);
+                    }
+                    match self
+                        .device
+                        .set_parameter(qhyccd_rs::Control::Offset, offset as f64)
+                    {
+                        Ok(_) => Ok(()),
+                        Err(e) => {
+                            error!(?e, "failed to set offset");
+                            Err(ASCOMError::UNSPECIFIED)
+                        }
+                    }
+                }
+                None => {
+                    debug!("offset control not available");
+                    Err(ASCOMError::NOT_IMPLEMENTED)
+                }
+            },
+            _ => {
+                error!("camera not connected");
+                Err(ASCOMError::NOT_CONNECTED)
+            }
+        }
+    }
+
+    async fn offset_max(&self) -> ASCOMResult<i32> {
+        self.offset_min_max
+            .read()
+            .await
+            .map(|(_min, max)| max as i32)
+            .ok_or(ASCOMError::NOT_IMPLEMENTED)
+    }
+
+    async fn offset_min(&self) -> ASCOMResult<i32> {
+        self.offset_min_max
+            .read()
+            .await
+            .map(|(min, _max)| min as i32)
+            .ok_or(ASCOMError::NOT_IMPLEMENTED)
+    }
 }
 
 #[tokio::main]
@@ -1447,6 +1539,7 @@ async fn main() -> eyre::Result<std::convert::Infallible> {
             last_image: RwLock::new(None),
             state: RwLock::new(State::Idle),
             gain_min_max: RwLock::new(None),
+            offset_min_max: RwLock::new(None),
         };
         tracing::debug!(?camera, "Registering webcam");
         server.devices.register(camera);
