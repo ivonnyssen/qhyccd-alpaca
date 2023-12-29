@@ -67,6 +67,7 @@ struct QhyccdCamera {
     device: QhyCamera,
     binning: RwLock<BinningMode>,
     valid_bins: RwLock<Option<Vec<BinningMode>>>,
+    target_temperature: RwLock<Option<f64>>,
     ccd_info: RwLock<Option<CCDChipInfo>>,
     intended_roi: RwLock<Option<qhyccd_rs::CCDChipArea>>,
     exposure_min_max_step: RwLock<Option<(f64, f64, f64)>>,
@@ -1150,7 +1151,7 @@ impl Camera for QhyccdCamera {
         match self.connected().await {
             Ok(true) => match self.device.is_control_available(qhyccd_rs::Control::Cooler) {
                 Some(_) => match self.device.get_parameter(qhyccd_rs::Control::CurTemp) {
-                    Ok(temp) => Ok(temp),
+                    Ok(temperature) => Ok(temperature),
                     Err(e) => {
                         error!(?e, "could not get current temperature");
                         Err(ASCOMError::INVALID_VALUE)
@@ -1168,9 +1169,23 @@ impl Camera for QhyccdCamera {
         }
     }
 
-    /// Returns the current camera cooler setpoint in degrees Celsius.
     async fn set_ccd_temperature(&self) -> ASCOMResult<f64> {
-        Err(ASCOMError::NOT_IMPLEMENTED)
+        match self.connected().await {
+            Ok(true) => match self.device.is_control_available(qhyccd_rs::Control::Cooler) {
+                Some(_) => match *self.target_temperature.read().await {
+                    Some(temperature) => Ok(temperature),
+                    None => self.ccd_temperature().await,
+                },
+                None => {
+                    debug!("no cooler");
+                    Err(ASCOMError::NOT_IMPLEMENTED)
+                }
+            },
+            _ => {
+                error!("camera not connected");
+                return Err(ASCOMError::NOT_CONNECTED);
+            }
+        }
     }
 
     async fn set_set_ccd_temperature(&self, set_ccd_temperature: f64) -> ASCOMResult {
@@ -1184,7 +1199,10 @@ impl Camera for QhyccdCamera {
                     .device
                     .set_parameter(qhyccd_rs::Control::Cooler, set_ccd_temperature)
                 {
-                    Ok(_) => Ok(()),
+                    Ok(_) => {
+                        *self.target_temperature.write().await = Some(set_ccd_temperature);
+                        Ok(())
+                    }
                     Err(e) => {
                         error!(?e, "could not set target temperature");
                         Err(ASCOMError::INVALID_VALUE)
@@ -1328,6 +1346,7 @@ async fn main() -> eyre::Result<std::convert::Infallible> {
             device: c.clone(),
             binning: RwLock::new(BinningMode { symmetric_value: 1 }),
             valid_bins: RwLock::new(None),
+            target_temperature: RwLock::new(None),
             ccd_info: RwLock::new(None),
             intended_roi: RwLock::new(None),
             exposure_min_max_step: RwLock::new(None),

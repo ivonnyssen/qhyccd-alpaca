@@ -104,6 +104,7 @@ enum MockCameraType {
 
 fn new_camera(mut device: MockCamera, variant: MockCameraType) -> QhyccdCamera {
     let mut binning = RwLock::new(BinningMode { symmetric_value: 1 });
+    let mut target_temperature = RwLock::new(None);
     let mut ccd_info = RwLock::new(None);
     let mut intended_roi = RwLock::new(None);
     let mut exposing = RwLock::new(ExposingState::Idle);
@@ -193,6 +194,7 @@ fn new_camera(mut device: MockCamera, variant: MockCameraType) -> QhyccdCamera {
         device,
         binning,
         valid_bins: RwLock::new(None),
+        target_temperature,
         ccd_info,
         intended_roi,
         exposure_min_max_step,
@@ -219,6 +221,7 @@ async fn qhyccd_camera() {
         device: mock.clone(),
         binning: RwLock::new(BinningMode { symmetric_value: 1 }),
         valid_bins: RwLock::new(None),
+        target_temperature: RwLock::new(None),
         ccd_info: RwLock::new(None),
         intended_roi: RwLock::new(None),
         exposure_min_max_step: RwLock::new(None),
