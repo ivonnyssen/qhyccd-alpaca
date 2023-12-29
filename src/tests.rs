@@ -107,11 +107,12 @@ fn new_camera(mut device: MockCamera, variant: MockCameraType) -> QhyccdCamera {
     let mut target_temperature = RwLock::new(None);
     let mut ccd_info = RwLock::new(None);
     let mut intended_roi = RwLock::new(None);
-    let mut exposing = RwLock::new(ExposingState::Idle);
+    let mut exposing = RwLock::new(State::Idle);
     let mut exposure_min_max_step = RwLock::new(None);
     let mut last_exposure_start_time = RwLock::new(None);
     let mut last_exposure_duration_us = RwLock::new(None);
     let mut last_image = RwLock::new(None);
+    let mut gain_min_max = RwLock::new(None);
     match variant {
         MockCameraType::IsOpenTrue { times } => {
             device.expect_is_open().times(times).returning(|| Ok(true));
@@ -130,7 +131,7 @@ fn new_camera(mut device: MockCamera, variant: MockCameraType) -> QhyccdCamera {
         MockCameraType::Untouched => {}
         MockCameraType::Exposing { expected_duration } => {
             device.expect_is_open().times(1).returning(|| Ok(true));
-            exposing = RwLock::new(ExposingState::Exposing {
+            exposing = RwLock::new(State::Exposing {
                 start: SystemTime::UNIX_EPOCH,
                 expected_duration_us: expected_duration as u32,
                 stop_tx: None,
@@ -179,7 +180,7 @@ fn new_camera(mut device: MockCamera, variant: MockCameraType) -> QhyccdCamera {
             ccd_info = RwLock::new(Some(camera_ccd_info));
             intended_roi = RwLock::new(Some(camera_roi));
             binning = RwLock::new(camera_binning);
-            exposing = RwLock::new(ExposingState::Exposing {
+            exposing = RwLock::new(State::Exposing {
                 start: SystemTime::UNIX_EPOCH,
                 expected_duration_us: expected_duration as u32,
                 stop_tx: None,
@@ -201,7 +202,8 @@ fn new_camera(mut device: MockCamera, variant: MockCameraType) -> QhyccdCamera {
         last_exposure_start_time,
         last_exposure_duration_us,
         last_image,
-        exposing,
+        state: exposing,
+        gain_min_max,
     }
 }
 
@@ -228,7 +230,8 @@ async fn qhyccd_camera() {
         last_exposure_start_time: RwLock::new(None),
         last_exposure_duration_us: RwLock::new(None),
         last_image: RwLock::new(None),
-        exposing: RwLock::new(ExposingState::Idle),
+        state: RwLock::new(State::Idle),
+        gain_min_max: RwLock::new(None),
     };
     //then
     assert_eq!(camera.unique_id, "test_camera");
@@ -240,7 +243,7 @@ async fn qhyccd_camera() {
     assert!(camera.last_exposure_start_time.read().await.is_none());
     assert!(camera.last_exposure_duration_us.read().await.is_none());
     assert!(camera.last_image.read().await.is_none());
-    assert_eq!(*camera.exposing.read().await, ExposingState::Idle);
+    assert_eq!(*camera.state.read().await, State::Idle);
     assert_eq!(camera.static_name(), "QHYCCD-test_camera");
     assert_eq!(camera.unique_id(), "test_camera");
     assert_eq!(camera.description().await.unwrap(), "QHYCCD camera");

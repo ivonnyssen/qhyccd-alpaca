@@ -37,7 +37,7 @@ struct StopExposure {
 
 #[derive(Educe)]
 #[educe(Debug, PartialEq)]
-enum ExposingState {
+enum State {
     Idle,
     Exposing {
         start: SystemTime,
@@ -74,7 +74,8 @@ struct QhyccdCamera {
     last_exposure_start_time: RwLock<Option<SystemTime>>,
     last_exposure_duration_us: RwLock<Option<u32>>,
     last_image: RwLock<Option<ImageArray>>,
-    exposing: RwLock<ExposingState>,
+    state: RwLock<State>,
+    gain_min_max: RwLock<Option<(f64, f64)>>,
 }
 
 impl QhyccdCamera {
@@ -247,10 +248,28 @@ impl Device for QhyccdCamera {
                     {
                         Ok((min, max, step)) => Some((min, max, step)),
                         Err(e) => {
-                            error!(?e, "get_effective_area failed");
+                            error!(?e, "get_exposure_min_max_step failed");
                             None
                         }
                     };
+                    match self.device.is_control_available(qhyccd_rs::Control::Gain) {
+                        Some(_) => {
+                            let mut lock = self.gain_min_max.write().await;
+                            *lock = match self
+                                .device
+                                .get_parameter_min_max_step(qhyccd_rs::Control::Gain)
+                            {
+                                Ok((min, max, _step)) => Some((min, max)),
+                                Err(e) => {
+                                    error!(?e, "get_gain_min_max failed");
+                                    None
+                                }
+                            };
+                        }
+                        None => {
+                            debug!("gain control not available");
+                        }
+                    }
                     Ok(())
                 }
                 false => self.device.close().map_err(|e| {
@@ -432,9 +451,9 @@ impl Camera for QhyccdCamera {
 
     async fn camera_state(&self) -> ASCOMResult<CameraState> {
         match self.connected().await {
-            Ok(true) => match *self.exposing.read().await {
-                ExposingState::Idle => Ok(CameraState::Idle),
-                ExposingState::Exposing { .. } => Ok(CameraState::Exposing),
+            Ok(true) => match *self.state.read().await {
+                State::Idle => Ok(CameraState::Idle),
+                State::Exposing { .. } => Ok(CameraState::Exposing),
             },
             _ => {
                 error!("camera not connected");
@@ -537,12 +556,12 @@ impl Camera for QhyccdCamera {
 
     async fn image_ready(&self) -> ASCOMResult<bool> {
         match self.connected().await {
-            Ok(true) => match *self.exposing.read().await {
-                ExposingState::Idle => match *self.last_image.read().await {
+            Ok(true) => match *self.state.read().await {
+                State::Idle => match *self.last_image.read().await {
                     Some(_) => Ok(true),
                     None => Ok(false),
                 },
-                ExposingState::Exposing { .. } => Ok(false),
+                State::Exposing { .. } => Ok(false),
             },
             _ => {
                 error!("camera not connected");
@@ -811,9 +830,9 @@ impl Camera for QhyccdCamera {
 
     async fn percent_completed(&self) -> ASCOMResult<i32> {
         match self.connected().await {
-            Ok(true) => match *self.exposing.read().await {
-                ExposingState::Idle => Ok(100),
-                ExposingState::Exposing {
+            Ok(true) => match *self.state.read().await {
+                State::Idle => Ok(100),
+                State::Exposing {
                     expected_duration_us,
                     ..
                 } => match self.device.get_remaining_exposure_us() {
@@ -956,12 +975,12 @@ impl Camera for QhyccdCamera {
                 let (stop_tx, stop_rx) = oneshot::channel::<StopExposure>();
                 let (done_tx, done_rx) = watch::channel(false);
 
-                let mut lock = self.exposing.write().await;
-                if *lock != ExposingState::Idle {
+                let mut lock = self.state.write().await;
+                if *lock != State::Idle {
                     error!("camera already exposing");
                     return Err(ASCOMError::INVALID_OPERATION);
                 } else {
-                    *lock = ExposingState::Exposing {
+                    *lock = State::Exposing {
                         start: SystemTime::now(),
                         expected_duration_us: exposure_us,
                         stop_tx: Some(stop_tx),
@@ -1048,7 +1067,7 @@ impl Camera for QhyccdCamera {
                         }
                     }
                 }
-                *lock = ExposingState::Idle;
+                *lock = State::Idle;
                 Ok(())
             }
             _ => {
@@ -1317,6 +1336,79 @@ impl Camera for QhyccdCamera {
             }
         }
     }
+
+    async fn gain(&self) -> ASCOMResult<i32> {
+        match self.connected().await {
+            Ok(true) => match self.device.is_control_available(qhyccd_rs::Control::Gain) {
+                Some(_) => match self.device.get_parameter(qhyccd_rs::Control::Gain) {
+                    Ok(gain) => Ok(gain as i32),
+                    Err(e) => {
+                        error!(?e, "failed to set gain");
+                        Err(ASCOMError::UNSPECIFIED)
+                    }
+                },
+                None => {
+                    debug!("gain control not available");
+                    Err(ASCOMError::NOT_IMPLEMENTED)
+                }
+            },
+            _ => {
+                error!("camera not connected");
+                Err(ASCOMError::NOT_CONNECTED)
+            }
+        }
+    }
+
+    async fn set_gain(&self, gain: i32) -> ASCOMResult {
+        match self.connected().await {
+            Ok(true) => match self.device.is_control_available(qhyccd_rs::Control::Gain) {
+                Some(_) => {
+                    let (min, max) = self
+                        .gain_min_max
+                        .read()
+                        .await
+                        .ok_or(ASCOMError::unspecified("gamera reports gain control avaialbe, but min, max values are not set after initialization"))?;
+                    if !(min as i32..=max as i32).contains(&gain) {
+                        return Err(ASCOMError::INVALID_VALUE);
+                    }
+                    match self
+                        .device
+                        .set_parameter(qhyccd_rs::Control::Gain, gain as f64)
+                    {
+                        Ok(_) => Ok(()),
+                        Err(e) => {
+                            error!(?e, "failed to set gain");
+                            Err(ASCOMError::UNSPECIFIED)
+                        }
+                    }
+                }
+                None => {
+                    debug!("gain control not available");
+                    Err(ASCOMError::NOT_IMPLEMENTED)
+                }
+            },
+            _ => {
+                error!("camera not connected");
+                Err(ASCOMError::NOT_CONNECTED)
+            }
+        }
+    }
+
+    async fn gain_max(&self) -> ASCOMResult<i32> {
+        self.gain_min_max
+            .read()
+            .await
+            .map(|(_min, max)| max as i32)
+            .ok_or(ASCOMError::NOT_IMPLEMENTED)
+    }
+
+    async fn gain_min(&self) -> ASCOMResult<i32> {
+        self.gain_min_max
+            .read()
+            .await
+            .map(|(min, _max)| min as i32)
+            .ok_or(ASCOMError::NOT_IMPLEMENTED)
+    }
 }
 
 #[tokio::main]
@@ -1353,7 +1445,8 @@ async fn main() -> eyre::Result<std::convert::Infallible> {
             last_exposure_start_time: RwLock::new(None),
             last_exposure_duration_us: RwLock::new(None),
             last_image: RwLock::new(None),
-            exposing: RwLock::new(ExposingState::Idle),
+            state: RwLock::new(State::Idle),
+            gain_min_max: RwLock::new(None),
         };
         tracing::debug!(?camera, "Registering webcam");
         server.devices.register(camera);
