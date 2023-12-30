@@ -2757,6 +2757,52 @@ async fn start_exposure_fail_num_y_greater_than_camera_y_size() {
 }
 
 #[tokio::test]
+async fn start_exposure_fail_set_roi() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_set_roi()
+        .once()
+        .withf(|roi| {
+            *roi == CCDChipArea {
+                start_x: 10,
+                start_y: 20,
+                width: 1920,
+                height: 1080,
+            }
+        })
+        .returning(|_| Err(eyre!(qhyccd_rs::QHYError::SetRoiError { error_code: 123 })));
+    let camera = new_camera(
+        mock,
+        MockCameraType::OpenBinningAndRoiAndCCDInfo {
+            times: 11,
+            camera_roi: CCDChipArea {
+                start_x: 10,
+                start_y: 20,
+                width: 1920,
+                height: 1080,
+            },
+            camera_ccd_info: CCDChipInfo {
+                chip_width: 7.0,
+                chip_height: 5.0,
+                image_width: 1920,
+                image_height: 1080,
+                pixel_width: 2.9,
+                pixel_height: 2.9,
+                bits_per_pixel: 16,
+            },
+            camera_binning: BinningMode { symmetric_value: 1 },
+        },
+    );
+    //when
+    let res = camera.start_exposure(1000_f64, true).await;
+    //then
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::invalid_value("failed to set ROI").to_string(),
+    )
+}
+
+#[tokio::test]
 async fn start_exposure_fail_is_exposing_no_miri() {
     //given
     let mut mock = MockCamera::new();
@@ -2876,6 +2922,81 @@ async fn start_exposure_success_1_channel_8_bpp_no_miri() {
 }
 
 #[tokio::test]
+async fn start_exposure_fail_1_channel_8_bpp_invalid_vector_no_miri() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_set_parameter()
+        .once()
+        .withf(|control, exposure| {
+            *control == qhyccd_rs::Control::Exposure && *exposure == 1_000_000_f64
+        })
+        .returning(|_, _| Ok(()));
+    mock.expect_set_roi()
+        .once()
+        .withf(|roi| {
+            *roi == CCDChipArea {
+                start_x: 10,
+                start_y: 20,
+                width: 1920,
+                height: 1080,
+            }
+        })
+        .returning(|_| Ok(()));
+    let mut clone_mock = MockCamera::new();
+    clone_mock
+        .expect_start_single_frame_exposure()
+        .once()
+        .returning(|| Ok(()));
+    clone_mock
+        .expect_get_image_size()
+        .once()
+        .returning(|| Ok(100_usize));
+    clone_mock
+        .expect_get_single_frame()
+        .once()
+        .withf(|size| *size == 100_usize)
+        .returning(|_| {
+            Ok(qhyccd_rs::ImageData {
+                data: Vec::new(),
+                width: 3,
+                height: 2,
+                bits_per_pixel: 8,
+                channels: 1,
+            })
+        });
+    mock.expect_clone().once().return_once(move || clone_mock);
+    let camera = new_camera(
+        mock,
+        MockCameraType::OpenBinningAndRoiAndCCDInfo {
+            times: 11,
+            camera_roi: CCDChipArea {
+                start_x: 10,
+                start_y: 20,
+                width: 1920,
+                height: 1080,
+            },
+            camera_ccd_info: CCDChipInfo {
+                chip_width: 7_f64,
+                chip_height: 5_f64,
+                image_width: 1920,
+                image_height: 1080,
+                pixel_width: 2.9_f64,
+                pixel_height: 2.9_f64,
+                bits_per_pixel: 16,
+            },
+            camera_binning: BinningMode { symmetric_value: 1 },
+        },
+    );
+    //when
+    let res = camera.start_exposure(1_f64, true).await;
+    //then
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::INVALID_OPERATION.to_string(),
+    )
+}
+
+#[tokio::test]
 async fn start_exposure_success_1_channel_16_bpp_no_miri() {
     //given
     let mut mock = MockCamera::new();
@@ -2945,6 +3066,81 @@ async fn start_exposure_success_1_channel_16_bpp_no_miri() {
     let res = camera.start_exposure(1_f64, true).await;
     //then
     assert!(res.is_ok());
+}
+
+#[tokio::test]
+async fn start_exposure_fail_1_channel_16_bpp_invalid_vector_no_miri() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_set_parameter()
+        .once()
+        .withf(|control, exposure| {
+            *control == qhyccd_rs::Control::Exposure && *exposure == 1_000_000_f64
+        })
+        .returning(|_, _| Ok(()));
+    mock.expect_set_roi()
+        .once()
+        .withf(|roi| {
+            *roi == CCDChipArea {
+                start_x: 10,
+                start_y: 20,
+                width: 1920,
+                height: 1080,
+            }
+        })
+        .returning(|_| Ok(()));
+    let mut clone_mock = MockCamera::new();
+    clone_mock
+        .expect_start_single_frame_exposure()
+        .once()
+        .returning(|| Ok(()));
+    clone_mock
+        .expect_get_image_size()
+        .once()
+        .returning(|| Ok(100_usize));
+    clone_mock
+        .expect_get_single_frame()
+        .once()
+        .withf(|size| *size == 100_usize)
+        .returning(|_| {
+            Ok(qhyccd_rs::ImageData {
+                data: Vec::new(),
+                width: 3,
+                height: 2,
+                bits_per_pixel: 16,
+                channels: 1,
+            })
+        });
+    mock.expect_clone().once().return_once(move || clone_mock);
+    let camera = new_camera(
+        mock,
+        MockCameraType::OpenBinningAndRoiAndCCDInfo {
+            times: 11,
+            camera_roi: CCDChipArea {
+                start_x: 10,
+                start_y: 20,
+                width: 1920,
+                height: 1080,
+            },
+            camera_ccd_info: CCDChipInfo {
+                chip_width: 7_f64,
+                chip_height: 5_f64,
+                image_width: 1920,
+                image_height: 1080,
+                pixel_width: 2.9_f64,
+                pixel_height: 2.9_f64,
+                bits_per_pixel: 16,
+            },
+            camera_binning: BinningMode { symmetric_value: 1 },
+        },
+    );
+    //when
+    let res = camera.start_exposure(1_f64, true).await;
+    //then
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::INVALID_OPERATION.to_string(),
+    )
 }
 
 #[tokio::test]

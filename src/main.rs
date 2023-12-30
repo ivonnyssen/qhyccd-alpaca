@@ -131,6 +131,20 @@ impl QhyccdCamera {
         match image.channels {
             1_u32 => match image.bits_per_pixel {
                 8_u32 => {
+                    if image.width as usize * image.height as usize != image.data.len() {
+                        error!(
+                            "image data length ({}) does not match width ({}) * height ({})",
+                            image.data.len(),
+                            image.width,
+                            image.height
+                        );
+                        return Err(eyre!(
+                            "image data length ({}) does not match width ({}) * height ({})",
+                            image.data.len(),
+                            image.width,
+                            image.height
+                        ));
+                    }
                     let data: Vec<u8> =
                         image.data[0_usize..image.width as usize * image.height as usize].to_vec();
                     match Array3::from_shape_vec(
@@ -149,6 +163,20 @@ impl QhyccdCamera {
                     }
                 }
                 16_u32 => {
+                    if image.width as usize * image.height as usize * 2_usize != image.data.len() {
+                        error!(
+                            "image data length ({}) does not match width ({}) * height ({}) * 2",
+                            image.data.len(),
+                            image.width,
+                            image.height
+                        );
+                        return Err(eyre!(
+                            "image data length ({}) does not match width ({}) * height ({}) * 2",
+                            image.data.len(),
+                            image.width,
+                            image.height
+                        ));
+                    }
                     let data = image.data
                         [0_usize..image.width as usize * image.height as usize * 2_usize]
                         .to_vec()
