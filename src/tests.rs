@@ -265,7 +265,7 @@ async fn qhyccd_camera() {
     assert_eq!(camera.static_name(), "QHYCCD-test_camera");
     assert_eq!(camera.unique_id(), "test_camera");
     assert_eq!(camera.description().await.unwrap(), "QHYCCD camera");
-    assert_eq!(camera.driver_info().await.unwrap(), "qhyccd_alpaca driver");
+    assert_eq!(camera.driver_info().await.unwrap(), "qhyccd_alpaca-rs");
     assert_eq!(
         camera.driver_version().await.unwrap(),
         env!("CARGO_PKG_VERSION")
@@ -499,6 +499,105 @@ async fn set_connected_fail_open() {
 }
 
 #[tokio::test]
+async fn set_connected_fail_set_stream_mode() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_open().once().returning(|| Ok(()));
+    mock.expect_set_stream_mode()
+        .once()
+        .withf(|mode| *mode == qhyccd_rs::StreamMode::SingleFrameMode)
+        .returning(|_| Err(eyre!("Could not set stream mode")));
+    let camera = new_camera(mock, MockCameraType::IsOpenFalse { times: 1 });
+    //when
+    let res = camera.set_connected(true).await;
+    //then
+    assert!(res.is_err());
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::NOT_CONNECTED.to_string()
+    );
+}
+
+#[tokio::test]
+async fn set_connected_fail_set_readout_mode() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_open().once().returning(|| Ok(()));
+    mock.expect_set_stream_mode()
+        .once()
+        .withf(|mode| *mode == qhyccd_rs::StreamMode::SingleFrameMode)
+        .returning(|_| Ok(()));
+    mock.expect_set_readout_mode()
+        .once()
+        .withf(|mode| *mode == 0)
+        .returning(|_| Err(eyre!("Could not set readout mode")));
+    let camera = new_camera(mock, MockCameraType::IsOpenFalse { times: 1 });
+    //when
+    let res = camera.set_connected(true).await;
+    //then
+    assert!(res.is_err());
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::NOT_CONNECTED.to_string()
+    );
+}
+
+#[tokio::test]
+async fn set_connected_fail_init() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_open().once().returning(|| Ok(()));
+    mock.expect_set_stream_mode()
+        .once()
+        .withf(|mode| *mode == qhyccd_rs::StreamMode::SingleFrameMode)
+        .returning(|_| Ok(()));
+    mock.expect_set_readout_mode()
+        .once()
+        .withf(|mode| *mode == 0)
+        .returning(|_| Ok(()));
+    mock.expect_init()
+        .once()
+        .returning(|| Err(eyre!("Could not init camera")));
+    let camera = new_camera(mock, MockCameraType::IsOpenFalse { times: 1 });
+    //when
+    let res = camera.set_connected(true).await;
+    //then
+    assert!(res.is_err());
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::NOT_CONNECTED.to_string()
+    );
+}
+
+#[tokio::test]
+async fn set_connected_fail_get_ccd_info() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_open().once().returning(|| Ok(()));
+    mock.expect_set_stream_mode()
+        .once()
+        .withf(|mode| *mode == qhyccd_rs::StreamMode::SingleFrameMode)
+        .returning(|_| Ok(()));
+    mock.expect_set_readout_mode()
+        .once()
+        .withf(|mode| *mode == 0)
+        .returning(|_| Ok(()));
+    mock.expect_init().once().returning(|| Ok(()));
+    mock.expect_get_ccd_info()
+        .once()
+        .returning(|| Err(eyre!("Could not get ccd info")));
+    let camera = new_camera(mock, MockCameraType::IsOpenFalse { times: 1 });
+    //when
+    let res = camera.set_connected(true).await;
+    //then
+    assert!(res.is_err());
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::NOT_CONNECTED.to_string()
+    );
+}
+
+#[tokio::test]
 async fn set_connected_fail_get_effective_area() {
     //given
     let mut mock = MockCamera::new();
@@ -526,6 +625,50 @@ async fn set_connected_fail_get_effective_area() {
     mock.expect_get_effective_area()
         .once()
         .returning(|| Err(eyre!("could not get effective area")));
+    let camera = new_camera(mock, MockCameraType::IsOpenFalse { times: 1 });
+    //when
+    let res = camera.set_connected(true).await;
+    //then
+    assert!(res.is_err());
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::NOT_CONNECTED.to_string()
+    );
+}
+
+#[tokio::test]
+async fn set_connected_fail_get_parameter_min_max_step_exposure() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_open().times(1).returning(|| Ok(()));
+    mock.expect_set_stream_mode()
+        .once()
+        .withf(|mode| *mode == qhyccd_rs::StreamMode::SingleFrameMode)
+        .returning(|_| Ok(()));
+    mock.expect_set_readout_mode()
+        .once()
+        .withf(|mode| *mode == 0)
+        .returning(|_| Ok(()));
+    mock.expect_init().once().returning(|| Ok(()));
+    mock.expect_get_ccd_info().once().returning(|| {
+        Ok(CCDChipInfo {
+            chip_width: 7.0,
+            chip_height: 5.0,
+            image_width: 1920,
+            image_height: 1080,
+            pixel_width: 2.9,
+            pixel_height: 2.9,
+            bits_per_pixel: 16,
+        })
+    });
+    mock.expect_get_effective_area().times(1).returning(|| {
+        Ok(CCDChipArea {
+            start_x: 0,
+            start_y: 0,
+            width: 100,
+            height: 100,
+        })
+    });
     mock.expect_is_control_available()
         .times(6)
         .withf(|control| {
@@ -548,7 +691,11 @@ async fn set_connected_fail_get_effective_area() {
     mock.expect_get_parameter_min_max_step()
         .once()
         .withf(|control| *control == qhyccd_rs::Control::Exposure)
-        .returning(|_| Ok((1_f64, 3_f64, 1_f64)));
+        .returning(|_| {
+            Err(eyre!(qhyccd_rs::QHYError::GetMinMaxStepError {
+                control: qhyccd_rs::Control::Exposure
+            }))
+        });
     mock.expect_is_control_available()
         .once()
         .withf(|control| *control == qhyccd_rs::Control::Gain)
@@ -565,11 +712,24 @@ async fn set_connected_fail_get_effective_area() {
         .once()
         .withf(|control| *control == qhyccd_rs::Control::Offset)
         .returning(|_| Ok((0_f64, 1023_f64, 1_f64)));
-    let camera = new_camera(mock, MockCameraType::IsOpenFalse { times: 1 });
+    mock.expect_is_open().once().returning(|| Ok(false));
+    mock.expect_is_open().times(2).returning(|| Ok(true));
+    let camera = new_camera(mock, MockCameraType::Untouched);
     //when
     let res = camera.set_connected(true).await;
-    //then
     assert!(res.is_ok());
+    let res = camera.exposure_min().await;
+    assert!(res.is_err());
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::INVALID_VALUE.to_string()
+    );
+    let res = camera.exposure_max().await;
+    assert!(res.is_err());
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::INVALID_VALUE.to_string()
+    );
 }
 
 #[tokio::test]
@@ -589,36 +749,104 @@ async fn set_connected_fail_close() {
         ASCOMError::NOT_CONNECTED.to_string()
     );
 }
-
+// https://www.cloudynights.com/topic/883660-software-relating-to-bayer-patterns/
 #[tokio::test]
-async fn bayer_offset_x_success() {
+async fn bayer_offset_success_gbrg() {
     //given
     let mut mock = MockCamera::new();
     mock.expect_is_control_available()
-        .once()
+        .times(2)
         .withf(|control| *control == qhyccd_rs::Control::CamIsColor)
         .returning(|_| Some(0));
     mock.expect_is_control_available()
-        .once()
+        .times(2)
         .withf(|control| *control == qhyccd_rs::Control::CamColor)
         .returning(|_| Some(qhyccd_rs::BayerMode::GBRG as u32));
-    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 2 });
     //when
     let res = camera.bayer_offset_x().await;
     //then
     assert!(res.is_ok());
-    assert_eq!(res.unwrap(), 2_i32);
+    assert_eq!(res.unwrap(), 0_i32);
+
+    //when
+    let res = camera.bayer_offset_y().await;
+    //then
+    assert!(res.is_ok());
+    assert_eq!(res.unwrap(), 1_i32);
 }
 
 #[tokio::test]
-async fn bayer_offset_y_success() {
+async fn bayer_offset_success_grbg() {
     //given
     let mut mock = MockCamera::new();
     mock.expect_is_control_available()
-        .once()
+        .times(2)
         .withf(|control| *control == qhyccd_rs::Control::CamIsColor)
         .returning(|_| Some(0));
-    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
+    mock.expect_is_control_available()
+        .times(2)
+        .withf(|control| *control == qhyccd_rs::Control::CamColor)
+        .returning(|_| Some(qhyccd_rs::BayerMode::GRBG as u32));
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 2 });
+    //when
+    let res = camera.bayer_offset_x().await;
+    //then
+    assert!(res.is_ok());
+    assert_eq!(res.unwrap(), 1_i32);
+
+    //when
+    let res = camera.bayer_offset_y().await;
+    //then
+    assert!(res.is_ok());
+    assert_eq!(res.unwrap(), 0_i32);
+}
+
+#[tokio::test]
+async fn bayer_offset_success_bggr() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_is_control_available()
+        .times(2)
+        .withf(|control| *control == qhyccd_rs::Control::CamIsColor)
+        .returning(|_| Some(0));
+    mock.expect_is_control_available()
+        .times(2)
+        .withf(|control| *control == qhyccd_rs::Control::CamColor)
+        .returning(|_| Some(qhyccd_rs::BayerMode::BGGR as u32));
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 2 });
+    //when
+    let res = camera.bayer_offset_x().await;
+    //then
+    assert!(res.is_ok());
+    assert_eq!(res.unwrap(), 1_i32);
+
+    //when
+    let res = camera.bayer_offset_y().await;
+    //then
+    assert!(res.is_ok());
+    assert_eq!(res.unwrap(), 1_i32);
+}
+
+#[tokio::test]
+async fn bayer_offset_success_rggb() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_is_control_available()
+        .times(2)
+        .withf(|control| *control == qhyccd_rs::Control::CamIsColor)
+        .returning(|_| Some(0));
+    mock.expect_is_control_available()
+        .times(2)
+        .withf(|control| *control == qhyccd_rs::Control::CamColor)
+        .returning(|_| Some(qhyccd_rs::BayerMode::RGGB as u32));
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 2 });
+    //when
+    let res = camera.bayer_offset_x().await;
+    //then
+    assert!(res.is_ok());
+    assert_eq!(res.unwrap(), 0_i32);
+
     //when
     let res = camera.bayer_offset_y().await;
     //then

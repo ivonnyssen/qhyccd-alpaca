@@ -127,8 +127,6 @@ impl QhyccdCamera {
         valid_binning_modes
     }
 
-    //TODO: need to probably mutate the image here to always match RGGB in all bin variants and
-    //bayer modes
     fn transform_image(image: qhyccd_rs::ImageData) -> Result<ImageArray> {
         match image.channels {
             1_u32 => match image.bits_per_pixel {
@@ -226,21 +224,17 @@ impl Device for QhyccdCamera {
                         ASCOMError::NOT_CONNECTED
                     })?;
                     let mut lock = self.ccd_info.write().await;
-                    *lock = match self.device.get_ccd_info() {
-                        Ok(info) => Some(info),
-                        Err(e) => {
-                            error!(?e, "get_ccd_info failed");
-                            None
-                        }
-                    };
+                    let info = self.device.get_ccd_info().map_err(|e| {
+                        error!(?e, "get_ccd_info failed");
+                        ASCOMError::NOT_CONNECTED
+                    })?;
+                    *lock = Some(info);
                     let mut lock = self.intended_roi.write().await;
-                    *lock = match self.device.get_effective_area() {
-                        Ok(area) => Some(area),
-                        Err(e) => {
-                            error!(?e, "get_effective_area failed");
-                            None
-                        }
-                    };
+                    let area = self.device.get_effective_area().map_err(|e| {
+                        error!(?e, "get_effective_area failed");
+                        ASCOMError::NOT_CONNECTED
+                    })?;
+                    *lock = Some(area);
                     *self.valid_bins.write().await = Some(self.get_valid_binning_modes());
                     let mut lock = self.exposure_min_max_step.write().await;
                     *lock = match self
@@ -304,7 +298,8 @@ impl Device for QhyccdCamera {
     }
 
     async fn driver_info(&self) -> ASCOMResult<String> {
-        Ok("qhyccd_alpaca driver".to_owned())
+        //TODO: add link to crates.io once published
+        Ok("qhyccd_alpaca-rs".to_owned())
     }
 
     async fn driver_version(&self) -> ASCOMResult<String> {
@@ -324,10 +319,11 @@ impl Camera for QhyccdCamera {
                     .device
                     .is_control_available(qhyccd_rs::Control::CamColor)
                 {
+                    // https://www.cloudynights.com/topic/883660-software-relating-to-bayer-patterns/
                     Some(bayer_id) => match bayer_id.try_into() {
-                        Ok(qhyccd_rs::BayerMode::GBRG) => Ok(2),
-                        Ok(qhyccd_rs::BayerMode::GRBG) => Ok(3),
-                        Ok(qhyccd_rs::BayerMode::BGGR) => Ok(4),
+                        Ok(qhyccd_rs::BayerMode::GBRG) => Ok(0),
+                        Ok(qhyccd_rs::BayerMode::GRBG) => Ok(1),
+                        Ok(qhyccd_rs::BayerMode::BGGR) => Ok(1),
                         Ok(qhyccd_rs::BayerMode::RGGB) => Ok(0),
                         Err(e) => {
                             error!(?e, "invalid bayer_id from camera");
@@ -354,7 +350,26 @@ impl Camera for QhyccdCamera {
                 .device
                 .is_control_available(qhyccd_rs::Control::CamIsColor)
             {
-                Some(_) => Ok(0),
+                Some(_) => match self
+                    .device
+                    .is_control_available(qhyccd_rs::Control::CamColor)
+                {
+                    // https://www.cloudynights.com/topic/883660-software-relating-to-bayer-patterns/
+                    Some(bayer_id) => match bayer_id.try_into() {
+                        Ok(qhyccd_rs::BayerMode::GBRG) => Ok(1),
+                        Ok(qhyccd_rs::BayerMode::GRBG) => Ok(0),
+                        Ok(qhyccd_rs::BayerMode::BGGR) => Ok(1),
+                        Ok(qhyccd_rs::BayerMode::RGGB) => Ok(0),
+                        Err(e) => {
+                            error!(?e, "invalid bayer_id from camera");
+                            Err(ASCOMError::INVALID_VALUE)
+                        }
+                    },
+                    None => {
+                        error!("invalid bayer_id from camera");
+                        Err(ASCOMError::INVALID_VALUE)
+                    }
+                },
                 None => Err(ASCOMError::NOT_IMPLEMENTED),
             },
             _ => {
@@ -1553,7 +1568,7 @@ async fn main() -> eyre::Result<std::convert::Infallible> {
     sdk.cameras().for_each(|c| {
         let camera = QhyccdCamera {
             unique_id: c.id().to_owned(),
-            name: format!("QHYCCD-{}", c.id()),
+            name: c.id().to_owned(),
             description: "QHYCCD camera".to_owned(),
             device: c.clone(),
             binning: RwLock::new(BinningMode { symmetric_value: 1 }),
