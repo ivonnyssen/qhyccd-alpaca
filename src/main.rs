@@ -1399,7 +1399,7 @@ impl Camera for QhyccdCamera {
                         .gain_min_max
                         .read()
                         .await
-                        .ok_or(ASCOMError::unspecified("gamera reports gain control avaialbe, but min, max values are not set after initialization"))?;
+                        .ok_or(ASCOMError::unspecified("gamera reports gain control available, but min, max values are not set after initialization"))?;
                     if !(min as i32..=max as i32).contains(&gain) {
                         return Err(ASCOMError::INVALID_VALUE);
                     }
