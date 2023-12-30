@@ -1304,7 +1304,7 @@ impl Camera for QhyccdCamera {
                     }
                     Err(e) => {
                         error!(?e, "could not turn cooler on");
-                        Err(e)
+                        Err(ASCOMError::INVALID_OPERATION)
                     }
                 }
             }
@@ -1327,7 +1327,7 @@ impl Camera for QhyccdCamera {
                     }
                     Err(e) => {
                         error!(?e, "could not turn cooler off");
-                        Err(e)
+                        Err(ASCOMError::INVALID_OPERATION)
                     }
                 }
             }
