@@ -237,16 +237,14 @@ impl Device for QhyccdCamera {
                     *lock = Some(area);
                     *self.valid_bins.write().await = Some(self.get_valid_binning_modes());
                     let mut lock = self.exposure_min_max_step.write().await;
-                    *lock = match self
+                    let exposure_min_max = self
                         .device
                         .get_parameter_min_max_step(qhyccd_rs::Control::Exposure)
-                    {
-                        Ok((min, max, step)) => Some((min, max, step)),
-                        Err(e) => {
+                        .map_err(|e| {
                             error!(?e, "get_exposure_min_max_step failed");
-                            None
-                        }
-                    };
+                            ASCOMError::NOT_CONNECTED
+                        })?;
+                    *lock = Some(exposure_min_max);
                     match self.device.is_control_available(qhyccd_rs::Control::Gain) {
                         Some(_) => {
                             let mut lock = self.gain_min_max.write().await;
@@ -257,7 +255,7 @@ impl Device for QhyccdCamera {
                                 Ok((min, max, _step)) => Some((min, max)),
                                 Err(e) => {
                                     error!(?e, "get_gain_min_max failed");
-                                    None
+                                    return Err(ASCOMError::NOT_CONNECTED);
                                 }
                             };
                         }
@@ -275,7 +273,7 @@ impl Device for QhyccdCamera {
                                 Ok((min, max, _step)) => Some((min, max)),
                                 Err(e) => {
                                     error!(?e, "get_offset_min_max failed");
-                                    None
+                                    return Err(ASCOMError::NOT_CONNECTED);
                                 }
                             };
                         }
