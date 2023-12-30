@@ -1304,7 +1304,7 @@ impl Camera for QhyccdCamera {
                     }
                     Err(e) => {
                         error!(?e, "could not turn cooler on");
-                        Err(ASCOMError::INVALID_OPERATION)
+                        Err(e)
                     }
                 }
             }
@@ -1327,7 +1327,7 @@ impl Camera for QhyccdCamera {
                     }
                     Err(e) => {
                         error!(?e, "could not turn cooler off");
-                        Err(ASCOMError::INVALID_OPERATION)
+                        Err(e)
                     }
                 }
             }
@@ -1414,19 +1414,33 @@ impl Camera for QhyccdCamera {
     }
 
     async fn gain_max(&self) -> ASCOMResult<i32> {
-        self.gain_min_max
-            .read()
-            .await
-            .map(|(_min, max)| max as i32)
-            .ok_or(ASCOMError::NOT_IMPLEMENTED)
+        match self.connected().await {
+            Ok(true) => self
+                .gain_min_max
+                .read()
+                .await
+                .map(|(_min, max)| max as i32)
+                .ok_or(ASCOMError::NOT_IMPLEMENTED),
+            _ => {
+                error!("camera not connected");
+                Err(ASCOMError::NOT_CONNECTED)
+            }
+        }
     }
 
     async fn gain_min(&self) -> ASCOMResult<i32> {
-        self.gain_min_max
-            .read()
-            .await
-            .map(|(min, _max)| min as i32)
-            .ok_or(ASCOMError::NOT_IMPLEMENTED)
+        match self.connected().await {
+            Ok(true) => self
+                .gain_min_max
+                .read()
+                .await
+                .map(|(min, _max)| min as i32)
+                .ok_or(ASCOMError::NOT_IMPLEMENTED),
+            _ => {
+                error!("camera not connected");
+                Err(ASCOMError::NOT_CONNECTED)
+            }
+        }
     }
 
     async fn offset(&self) -> ASCOMResult<i32> {
@@ -1487,19 +1501,33 @@ impl Camera for QhyccdCamera {
     }
 
     async fn offset_max(&self) -> ASCOMResult<i32> {
-        self.offset_min_max
-            .read()
-            .await
-            .map(|(_min, max)| max as i32)
-            .ok_or(ASCOMError::NOT_IMPLEMENTED)
+        match self.connected().await {
+            Ok(true) => self
+                .offset_min_max
+                .read()
+                .await
+                .map(|(_min, max)| max as i32)
+                .ok_or(ASCOMError::NOT_IMPLEMENTED),
+            _ => {
+                error!("camera not connected");
+                Err(ASCOMError::NOT_CONNECTED)
+            }
+        }
     }
 
     async fn offset_min(&self) -> ASCOMResult<i32> {
-        self.offset_min_max
-            .read()
-            .await
-            .map(|(min, _max)| min as i32)
-            .ok_or(ASCOMError::NOT_IMPLEMENTED)
+        match self.connected().await {
+            Ok(true) => self
+                .offset_min_max
+                .read()
+                .await
+                .map(|(min, _max)| min as i32)
+                .ok_or(ASCOMError::NOT_IMPLEMENTED),
+            _ => {
+                error!("camera not connected");
+                Err(ASCOMError::NOT_CONNECTED)
+            }
+        }
     }
 }
 

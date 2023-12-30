@@ -53,6 +53,21 @@ async fn not_connected_asyncs() {
     not_connected! {abort_exposure()}
     not_connected! {pixel_size_x()}
     not_connected! {pixel_size_y()}
+    not_connected! {can_get_cooler_power()}
+    not_connected! {ccd_temperature()}
+    not_connected! {set_ccd_temperature()}
+    not_connected! {set_set_ccd_temperature(0.0)}
+    not_connected! {cooler_on()}
+    not_connected! {set_cooler_on(true)}
+    not_connected! {cooler_power()}
+    not_connected! {gain()}
+    not_connected! {set_gain(1)}
+    not_connected! {gain_min()}
+    not_connected! {gain_max()}
+    not_connected! {offset()}
+    not_connected! {set_offset(10)}
+    not_connected! {offset_min()}
+    not_connected! {offset_max()}
 }
 
 enum MockCameraType {
@@ -2618,6 +2633,25 @@ async fn pixel_size_y_fail_no_ccd_info() {
 }
 
 #[tokio::test]
+async fn cooler_on_no_cooler() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_is_control_available()
+        .once()
+        .withf(|control| *control == qhyccd_rs::Control::Cooler)
+        .returning(|_| None);
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
+    //when
+    let res = camera.cooler_on().await;
+    //then
+    assert!(res.is_err());
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::NOT_IMPLEMENTED.to_string()
+    )
+}
+
+#[tokio::test]
 async fn set_cooler_on_success_on_already_on() {
     //given
     let mut mock = MockCamera::new();
@@ -2719,7 +2753,7 @@ async fn set_cooler_on_fail_off_to_on_cooler_on_error() {
     assert!(res.is_err());
     assert_eq!(
         res.err().unwrap().to_string(),
-        ASCOMError::INVALID_OPERATION.to_string()
+        ASCOMError::INVALID_VALUE.to_string()
     )
 }
 
@@ -2823,6 +2857,25 @@ async fn set_cooler_on_fail_on_to_off_cooler_on_error() {
     assert!(res.is_err());
     assert_eq!(
         res.err().unwrap().to_string(),
-        ASCOMError::INVALID_OPERATION.to_string()
+        ASCOMError::INVALID_VALUE.to_string()
     )
+}
+
+#[tokio::test]
+async fn cooler_power_success() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_is_control_available()
+        .once()
+        .withf(|control| *control == qhyccd_rs::Control::Cooler)
+        .returning(|_| Some(0));
+    mock.expect_get_parameter()
+        .once()
+        .withf(|control| *control == qhyccd_rs::Control::CurPWM)
+        .returning(|_| Ok(25_f64));
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
+    //when
+    let res = camera.cooler_power().await;
+    //then
+    assert!((res.unwrap() - 25_f64 / 255_f64 * 100_f64).abs() < f64::EPSILON);
 }
