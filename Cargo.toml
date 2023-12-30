@@ -25,7 +25,7 @@ ascom-alpaca = { version = "1.0.0-beta.1", features = [
 async-trait = "0.1.75"
 custom_debug = "0.5.1"
 eyre = "0.6.11"
-qhyccd-rs = { version = "0.1.4", path = "../qhyccd-rs/" }
+qhyccd-rs = "0.1.4"
 ndarray = "0.15.6"
 parking_lot = "0.12.1"
 strum = "0.25.0"
@@ -39,4 +39,4 @@ educe = "0.5.9"
 mediatype = "0.19.16"
 
 [dev-dependencies]
-mockall = { version = "0.12.0", features = [] }
+mockall = { version = "0.12.1", features = [] }
