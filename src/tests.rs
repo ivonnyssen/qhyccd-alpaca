@@ -109,18 +109,22 @@ enum MockCameraType {
     WithBinning {
         camera_binning: BinningMode,
     },
-    OpenBinningAndRoiAndCCDInfo {
+    WithBinningAndRoiAndCCDInfo {
         times: usize,
         camera_roi: CCDChipArea,
         camera_ccd_info: CCDChipInfo,
         camera_binning: BinningMode,
     },
-    OpenBinningAndRoiAndCCDInfoAndExposing {
+    WithBinningAndRoiAndCCDInfoAndExposing {
         times: usize,
         camera_roi: CCDChipArea,
         camera_ccd_info: CCDChipInfo,
         camera_binning: BinningMode,
         expected_duration: f64,
+    },
+    WithTargetTemperature {
+        times: usize,
+        temperature: f64,
     },
 }
 
@@ -186,7 +190,7 @@ fn new_camera(mut device: MockCamera, variant: MockCameraType) -> QhyccdCamera {
             device.expect_is_open().times(1).returning(|| Ok(true));
             binning = RwLock::new(camera_binning);
         }
-        MockCameraType::OpenBinningAndRoiAndCCDInfo {
+        MockCameraType::WithBinningAndRoiAndCCDInfo {
             times,
             camera_roi,
             camera_ccd_info,
@@ -197,7 +201,7 @@ fn new_camera(mut device: MockCamera, variant: MockCameraType) -> QhyccdCamera {
             intended_roi = RwLock::new(Some(camera_roi));
             binning = RwLock::new(camera_binning);
         }
-        MockCameraType::OpenBinningAndRoiAndCCDInfoAndExposing {
+        MockCameraType::WithBinningAndRoiAndCCDInfoAndExposing {
             times,
             camera_roi,
             camera_ccd_info,
@@ -214,6 +218,10 @@ fn new_camera(mut device: MockCamera, variant: MockCameraType) -> QhyccdCamera {
                 stop_tx: None,
                 done_rx: watch::channel(false).1,
             });
+        }
+        MockCameraType::WithTargetTemperature { times, temperature } => {
+            device.expect_is_open().times(times).returning(|| Ok(true));
+            target_temperature = RwLock::new(Some(temperature));
         }
     }
     QhyccdCamera {
@@ -1247,7 +1255,7 @@ async fn set_bin_x_success_different_bin_with_roi_even() {
         .returning(|_, _| Ok(()));
     let camera = new_camera(
         mock,
-        MockCameraType::OpenBinningAndRoiAndCCDInfo {
+        MockCameraType::WithBinningAndRoiAndCCDInfo {
             times: 9,
             camera_roi: CCDChipArea {
                 start_x: 10,
@@ -1291,7 +1299,7 @@ async fn set_bin_x_success_different_bin_with_roi_odd() {
         .returning(|_, _| Ok(()));
     let camera = new_camera(
         mock,
-        MockCameraType::OpenBinningAndRoiAndCCDInfo {
+        MockCameraType::WithBinningAndRoiAndCCDInfo {
             times: 9,
             camera_roi: CCDChipArea {
                 start_x: 5,
@@ -2692,7 +2700,7 @@ async fn start_exposure_fail_num_x_greater_than_camera_x_size() {
     let mock = MockCamera::new();
     let camera = new_camera(
         mock,
-        MockCameraType::OpenBinningAndRoiAndCCDInfo {
+        MockCameraType::WithBinningAndRoiAndCCDInfo {
             times: 8,
             camera_roi: CCDChipArea {
                 start_x: 0,
@@ -2727,7 +2735,7 @@ async fn start_exposure_fail_num_y_greater_than_camera_y_size() {
     let mock = MockCamera::new();
     let camera = new_camera(
         mock,
-        MockCameraType::OpenBinningAndRoiAndCCDInfo {
+        MockCameraType::WithBinningAndRoiAndCCDInfo {
             times: 11,
             camera_roi: CCDChipArea {
                 start_x: 0,
@@ -2773,7 +2781,7 @@ async fn start_exposure_fail_set_roi() {
         .returning(|_| Err(eyre!(qhyccd_rs::QHYError::SetRoiError { error_code: 123 })));
     let camera = new_camera(
         mock,
-        MockCameraType::OpenBinningAndRoiAndCCDInfo {
+        MockCameraType::WithBinningAndRoiAndCCDInfo {
             times: 11,
             camera_roi: CCDChipArea {
                 start_x: 10,
@@ -2819,7 +2827,7 @@ async fn start_exposure_fail_is_exposing_no_miri() {
         .returning(|_| Ok(()));
     let camera = new_camera(
         mock,
-        MockCameraType::OpenBinningAndRoiAndCCDInfoAndExposing {
+        MockCameraType::WithBinningAndRoiAndCCDInfoAndExposing {
             times: 11,
             camera_roi: CCDChipArea {
                 start_x: 10,
@@ -2895,7 +2903,7 @@ async fn start_exposure_success_1_channel_8_bpp_no_miri() {
     mock.expect_clone().once().return_once(move || clone_mock);
     let camera = new_camera(
         mock,
-        MockCameraType::OpenBinningAndRoiAndCCDInfo {
+        MockCameraType::WithBinningAndRoiAndCCDInfo {
             times: 11,
             camera_roi: CCDChipArea {
                 start_x: 10,
@@ -2967,7 +2975,7 @@ async fn start_exposure_fail_1_channel_8_bpp_invalid_vector_no_miri() {
     mock.expect_clone().once().return_once(move || clone_mock);
     let camera = new_camera(
         mock,
-        MockCameraType::OpenBinningAndRoiAndCCDInfo {
+        MockCameraType::WithBinningAndRoiAndCCDInfo {
             times: 11,
             camera_roi: CCDChipArea {
                 start_x: 10,
@@ -3042,7 +3050,7 @@ async fn start_exposure_success_1_channel_16_bpp_no_miri() {
     mock.expect_clone().once().return_once(move || clone_mock);
     let camera = new_camera(
         mock,
-        MockCameraType::OpenBinningAndRoiAndCCDInfo {
+        MockCameraType::WithBinningAndRoiAndCCDInfo {
             times: 11,
             camera_roi: CCDChipArea {
                 start_x: 10,
@@ -3114,7 +3122,7 @@ async fn start_exposure_fail_1_channel_16_bpp_invalid_vector_no_miri() {
     mock.expect_clone().once().return_once(move || clone_mock);
     let camera = new_camera(
         mock,
-        MockCameraType::OpenBinningAndRoiAndCCDInfo {
+        MockCameraType::WithBinningAndRoiAndCCDInfo {
             times: 11,
             camera_roi: CCDChipArea {
                 start_x: 10,
@@ -3189,7 +3197,7 @@ async fn start_exposure_fail_unsupported_channel_16_bpp_no_miri() {
     mock.expect_clone().once().return_once(move || clone_mock);
     let camera = new_camera(
         mock,
-        MockCameraType::OpenBinningAndRoiAndCCDInfo {
+        MockCameraType::WithBinningAndRoiAndCCDInfo {
             times: 11,
             camera_roi: CCDChipArea {
                 start_x: 10,
@@ -3264,7 +3272,7 @@ async fn start_exposure_fail_1_channel_unsupported_bpp_no_miri() {
     mock.expect_clone().once().return_once(move || clone_mock);
     let camera = new_camera(
         mock,
-        MockCameraType::OpenBinningAndRoiAndCCDInfo {
+        MockCameraType::WithBinningAndRoiAndCCDInfo {
             times: 11,
             camera_roi: CCDChipArea {
                 start_x: 10,
@@ -3320,7 +3328,7 @@ async fn start_exposure_fail_set_parameter_no_miri() {
         .returning(|_| Ok(()));
     let camera = new_camera(
         mock,
-        MockCameraType::OpenBinningAndRoiAndCCDInfo {
+        MockCameraType::WithBinningAndRoiAndCCDInfo {
             times: 11,
             camera_roi: CCDChipArea {
                 start_x: 10,
@@ -3382,7 +3390,7 @@ async fn start_exposure_fail_start_single_frame_exposure_no_miri() {
     mock.expect_clone().once().return_once(move || clone_mock);
     let camera = new_camera(
         mock,
-        MockCameraType::OpenBinningAndRoiAndCCDInfo {
+        MockCameraType::WithBinningAndRoiAndCCDInfo {
             times: 11,
             camera_roi: CCDChipArea {
                 start_x: 10,
@@ -3444,7 +3452,7 @@ async fn start_exposure_fail_get_image_size_no_miri() {
     mock.expect_clone().once().return_once(move || clone_mock);
     let camera = new_camera(
         mock,
-        MockCameraType::OpenBinningAndRoiAndCCDInfo {
+        MockCameraType::WithBinningAndRoiAndCCDInfo {
             times: 11,
             camera_roi: CCDChipArea {
                 start_x: 10,
@@ -3515,7 +3523,7 @@ async fn start_exposure_fail_get_single_frame_no_miri() {
     mock.expect_clone().once().return_once(move || clone_mock);
     let camera = new_camera(
         mock,
-        MockCameraType::OpenBinningAndRoiAndCCDInfo {
+        MockCameraType::WithBinningAndRoiAndCCDInfo {
             times: 11,
             camera_roi: CCDChipArea {
                 start_x: 10,
@@ -3860,7 +3868,6 @@ async fn set_cooler_on_fail_on_to_off_cooler_on_error() {
     //when
     let res = camera.set_cooler_on(false).await;
     //then
-    assert!(res.is_err());
     assert_eq!(
         res.err().unwrap().to_string(),
         ASCOMError::INVALID_VALUE.to_string()
@@ -3884,4 +3891,243 @@ async fn cooler_power_success() {
     let res = camera.cooler_power().await;
     //then
     assert!((res.unwrap() - 25_f64 / 255_f64 * 100_f64).abs() < f64::EPSILON);
+}
+
+#[tokio::test]
+async fn cooler_power_fail_get_parameter() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_is_control_available()
+        .once()
+        .withf(|control| *control == qhyccd_rs::Control::Cooler)
+        .returning(|_| Some(0));
+    mock.expect_get_parameter()
+        .once()
+        .withf(|control| *control == qhyccd_rs::Control::CurPWM)
+        .returning(|_| {
+            Err(eyre!(qhyccd_rs::QHYError::GetParameterError {
+                control: qhyccd_rs::Control::CurPWM,
+            }))
+        });
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
+    //when
+    let res = camera.cooler_power().await;
+    //then
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::INVALID_VALUE.to_string()
+    )
+}
+
+#[tokio::test]
+async fn cooler_power_fail_no_cooler() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_is_control_available()
+        .once()
+        .withf(|control| *control == qhyccd_rs::Control::Cooler)
+        .returning(|_| None);
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
+    //when
+    let res = camera.cooler_power().await;
+    //then
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::NOT_IMPLEMENTED.to_string()
+    )
+}
+
+#[tokio::test]
+async fn can_set_ccd_temperature_success_cooler() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_is_control_available()
+        .once()
+        .withf(|control| *control == qhyccd_rs::Control::Cooler)
+        .returning(|_| Some(0));
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
+    //when
+    let res = camera.can_set_ccd_temperature().await;
+    //then
+    assert!(res.is_ok());
+    assert!(res.unwrap());
+}
+
+#[tokio::test]
+async fn can_set_ccd_temperature_success_non_cooler() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_is_control_available()
+        .once()
+        .withf(|control| *control == qhyccd_rs::Control::Cooler)
+        .returning(|_| None);
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
+    //when
+    let res = camera.can_set_ccd_temperature().await;
+    //then
+    assert!(res.is_ok());
+    assert!(!res.unwrap());
+}
+
+#[tokio::test]
+async fn ccd_temperature_success_cooler() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_is_control_available()
+        .once()
+        .withf(|control| *control == qhyccd_rs::Control::Cooler)
+        .returning(|_| Some(0));
+    mock.expect_get_parameter()
+        .once()
+        .withf(|control| *control == qhyccd_rs::Control::CurTemp)
+        .returning(|_| Ok(25_f64));
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
+    //when
+    let res = camera.ccd_temperature().await;
+    //then
+    assert!(res.is_ok());
+    assert!((res.unwrap() - 25_f64).abs() < f64::EPSILON);
+}
+
+#[tokio::test]
+async fn ccd_temperature_success_no_cooler() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_is_control_available()
+        .once()
+        .withf(|control| *control == qhyccd_rs::Control::Cooler)
+        .returning(|_| None);
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
+    //when
+    let res = camera.ccd_temperature().await;
+    //then
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::NOT_IMPLEMENTED.to_string()
+    )
+}
+
+#[tokio::test]
+async fn set_ccd_temperature_success_cooler_temperature_already_set() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_is_control_available()
+        .once()
+        .withf(|control| *control == qhyccd_rs::Control::Cooler)
+        .returning(|_| Some(0));
+    let camera = new_camera(
+        mock,
+        MockCameraType::WithTargetTemperature {
+            times: 1,
+            temperature: -2_f64,
+        },
+    );
+    //when
+    let res = camera.set_ccd_temperature().await;
+    //then
+    assert!((res.unwrap() - -2_f64).abs() < f64::EPSILON);
+}
+
+#[tokio::test]
+async fn set_ccd_temperature_success_cooler_temperature_not_yet_set() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_is_control_available()
+        .times(2)
+        .withf(|control| *control == qhyccd_rs::Control::Cooler)
+        .returning(|_| Some(0));
+    mock.expect_get_parameter()
+        .once()
+        .withf(|control| *control == qhyccd_rs::Control::CurTemp)
+        .returning(|_| Ok(25_f64));
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 2 });
+    //when
+    let res = camera.set_ccd_temperature().await;
+    //then
+    assert!((res.unwrap() - 25_f64).abs() < f64::EPSILON);
+}
+
+#[tokio::test]
+async fn set_ccd_temperature_fail_no_cooler() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_is_control_available()
+        .once()
+        .withf(|control| *control == qhyccd_rs::Control::Cooler)
+        .returning(|_| None);
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
+    //when
+    let res = camera.set_ccd_temperature().await;
+    //then
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::NOT_IMPLEMENTED.to_string()
+    )
+}
+
+#[tokio::test]
+async fn set_set_ccd_temperature_success() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_is_control_available()
+        .once()
+        .withf(|control| *control == qhyccd_rs::Control::Cooler)
+        .returning(|_| Some(0));
+    mock.expect_set_parameter()
+        .once()
+        .withf(|control, temp| {
+            *control == qhyccd_rs::Control::Cooler && (*temp - -2_f64).abs() < f64::EPSILON
+        })
+        .returning(|_, _| Ok(()));
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
+    //when
+    let res = camera.set_set_ccd_temperature(-2_f64).await;
+    //then
+    assert!(res.is_ok());
+}
+
+#[tokio::test]
+async fn set_set_ccd_temperature_fail_no_cooler() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_is_control_available()
+        .once()
+        .withf(|control| *control == qhyccd_rs::Control::Cooler)
+        .returning(|_| None);
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
+    //when
+    let res = camera.set_set_ccd_temperature(-2_f64).await;
+    //then
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::NOT_IMPLEMENTED.to_string()
+    )
+}
+
+#[tokio::test]
+async fn set_set_ccd_temperature_fail_set_parameter_error() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_is_control_available()
+        .once()
+        .withf(|control| *control == qhyccd_rs::Control::Cooler)
+        .returning(|_| Some(0));
+    mock.expect_set_parameter()
+        .once()
+        .withf(|control, temp| {
+            *control == qhyccd_rs::Control::Cooler && (*temp - -2_f64).abs() < f64::EPSILON
+        })
+        .returning(|_, _| {
+            Err(eyre!(qhyccd_rs::QHYError::SetParameterError {
+                error_code: 123
+            }))
+        });
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
+    //when
+    let res = camera.set_set_ccd_temperature(-2_f64).await;
+    //then
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::INVALID_VALUE.to_string()
+    )
 }
