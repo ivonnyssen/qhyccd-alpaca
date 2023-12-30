@@ -702,16 +702,8 @@ impl Camera for QhyccdCamera {
                         ..intended_roi
                     }),
                     None => {
-                        let width =
-                            (self.camera_xsize().await? as f32 / self.bin_x().await? as f32) as u32;
-                        let height =
-                            (self.camera_ysize().await? as f32 / self.bin_y().await? as f32) as u32;
-                        Some(CCDChipArea {
-                            start_x: start_x as u32,
-                            start_y: 0_u32,
-                            width,
-                            height,
-                        })
+                        error!("no roi defined, but trying to set start_x");
+                        return Err(ASCOMError::INVALID_VALUE);
                     }
                 };
                 Ok(())
@@ -749,16 +741,8 @@ impl Camera for QhyccdCamera {
                         ..intended_roi
                     }),
                     None => {
-                        let width =
-                            (self.camera_xsize().await? as f32 / self.bin_x().await? as f32) as u32;
-                        let height =
-                            (self.camera_ysize().await? as f32 / self.bin_y().await? as f32) as u32;
-                        Some(CCDChipArea {
-                            start_x: 0_u32,
-                            start_y: start_y as u32,
-                            width,
-                            height,
-                        })
+                        error!("no roi defined, but trying to set start_y");
+                        return Err(ASCOMError::INVALID_VALUE);
                     }
                 };
                 Ok(())
@@ -796,14 +780,8 @@ impl Camera for QhyccdCamera {
                         ..intended_roi
                     }),
                     None => {
-                        let height =
-                            (self.camera_ysize().await? as f32 / self.bin_y().await? as f32) as u32;
-                        Some(CCDChipArea {
-                            start_x: 0_u32,
-                            start_y: 0_u32,
-                            width: num_x as u32,
-                            height,
-                        })
+                        error!("no roi defined, but trying to set num_x");
+                        return Err(ASCOMError::INVALID_VALUE);
                     }
                 };
                 Ok(())
@@ -841,14 +819,8 @@ impl Camera for QhyccdCamera {
                         ..intended_roi
                     }),
                     None => {
-                        let width =
-                            (self.camera_xsize().await? as f32 / self.bin_x().await? as f32) as u32;
-                        Some(CCDChipArea {
-                            start_x: 0_u32,
-                            start_y: 0_u32,
-                            width,
-                            height: num_y as u32,
-                        })
+                        error!("no roi defined, but trying to set num_y");
+                        return Err(ASCOMError::INVALID_VALUE);
                     }
                 };
                 Ok(())

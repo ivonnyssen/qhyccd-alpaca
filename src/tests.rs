@@ -60,6 +60,9 @@ async fn not_connected_asyncs() {
     not_connected! {cooler_on()}
     not_connected! {set_cooler_on(true)}
     not_connected! {cooler_power()}
+    not_connected! {exposure_min()}
+    not_connected! {exposure_max()}
+    not_connected! {exposure_resolution()}
     not_connected! {gain()}
     not_connected! {set_gain(1)}
     not_connected! {gain_min()}
@@ -80,13 +83,15 @@ enum MockCameraType {
         times: usize,
     },
     WithRoiAndCCDInfo {
+        times: usize,
         camera_roi: CCDChipArea,
         camera_ccd_info: CCDChipInfo,
     },
     Untouched,
-    Exposing {
+    WithStateExposing {
         expected_duration: f64,
     },
+    WithStateIdle {},
     WithImage {
         image_array: ImageArray,
     },
@@ -139,15 +144,16 @@ fn new_camera(mut device: MockCamera, variant: MockCameraType) -> QhyccdCamera {
             device.expect_is_open().times(times).returning(|| Ok(false));
         }
         MockCameraType::WithRoiAndCCDInfo {
+            times,
             camera_roi,
             camera_ccd_info,
         } => {
-            device.expect_is_open().once().returning(|| Ok(true));
+            device.expect_is_open().times(times).returning(|| Ok(true));
             ccd_info = RwLock::new(Some(camera_ccd_info));
             intended_roi = RwLock::new(Some(camera_roi));
         }
         MockCameraType::Untouched => {}
-        MockCameraType::Exposing { expected_duration } => {
+        MockCameraType::WithStateExposing { expected_duration } => {
             device.expect_is_open().times(1).returning(|| Ok(true));
             exposing = RwLock::new(State::Exposing {
                 start: SystemTime::UNIX_EPOCH,
@@ -155,6 +161,10 @@ fn new_camera(mut device: MockCamera, variant: MockCameraType) -> QhyccdCamera {
                 stop_tx: None,
                 done_rx: watch::channel(false).1,
             });
+        }
+        MockCameraType::WithStateIdle {} => {
+            device.expect_is_open().times(1).returning(|| Ok(true));
+            exposing = RwLock::new(State::Idle);
         }
         MockCameraType::WithImage { image_array: image } => {
             device.expect_is_open().times(1).returning(|| Ok(true));
@@ -344,7 +354,7 @@ async fn camera_state_success_exposing() {
     let mock = MockCamera::new();
     let camera = new_camera(
         mock,
-        MockCameraType::Exposing {
+        MockCameraType::WithStateExposing {
             expected_duration: 10000_f64,
         },
     );
@@ -1093,6 +1103,70 @@ async fn bayer_offset_success_monochrome() {
 }
 
 #[tokio::test]
+async fn bayer_offset_fail_invalid_bayer_mode() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_is_control_available()
+        .times(2)
+        .withf(|control| *control == qhyccd_rs::Control::CamIsColor)
+        .returning(|_| Some(0));
+    mock.expect_is_control_available()
+        .times(2)
+        .withf(|control| *control == qhyccd_rs::Control::CamColor)
+        .returning(|_| Some(0));
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 2 });
+    //when
+    let res = camera.bayer_offset_x().await;
+    //then
+    assert!(res.is_err());
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::INVALID_VALUE.to_string()
+    );
+
+    //when
+    let res = camera.bayer_offset_y().await;
+    //then
+    assert!(res.is_err());
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::INVALID_VALUE.to_string()
+    );
+}
+
+#[tokio::test]
+async fn bayer_offset_fail_none() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_is_control_available()
+        .times(2)
+        .withf(|control| *control == qhyccd_rs::Control::CamIsColor)
+        .returning(|_| Some(0));
+    mock.expect_is_control_available()
+        .times(2)
+        .withf(|control| *control == qhyccd_rs::Control::CamColor)
+        .returning(|_| None);
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 2 });
+    //when
+    let res = camera.bayer_offset_x().await;
+    //then
+    assert!(res.is_err());
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::INVALID_VALUE.to_string()
+    );
+
+    //when
+    let res = camera.bayer_offset_y().await;
+    //then
+    assert!(res.is_err());
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::INVALID_VALUE.to_string()
+    );
+}
+
+#[tokio::test]
 async fn sensor_name_success() {
     //given
     let mock = MockCamera::new();
@@ -1338,6 +1412,29 @@ async fn max_adu_success() {
 }
 
 #[tokio::test]
+async fn max_adu_fail_error_get_parameter() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_get_parameter()
+        .once()
+        .withf(|control| *control == qhyccd_rs::Control::OutputDataActualBits)
+        .returning(|_| {
+            Err(eyre!(qhyccd_rs::QHYError::GetParameterError {
+                control: qhyccd_rs::Control::OutputDataActualBits
+            }))
+        });
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
+    //when
+    let res = camera.max_adu().await;
+    //then
+    assert!(res.is_err());
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::VALUE_NOT_SET.to_string()
+    );
+}
+
+#[tokio::test]
 async fn exposure_max_success() {
     //given
     let mock = MockCamera::new();
@@ -1354,6 +1451,89 @@ async fn exposure_max_success() {
     //then
     assert!(res.is_ok());
     assert_eq!(res.unwrap(), (3_600_f64));
+}
+
+#[tokio::test]
+async fn exposure_max_fail_max_min_step() {
+    //given
+    let mock = MockCamera::new();
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
+    //when
+    let res = camera.exposure_max().await;
+    //then
+    assert!(res.is_err());
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::INVALID_VALUE.to_string()
+    );
+}
+
+#[tokio::test]
+async fn exposure_min_success() {
+    //given
+    let mock = MockCamera::new();
+    let camera = new_camera(
+        mock,
+        MockCameraType::WithExposureMinMaxStep {
+            min: 0_f64,
+            max: 3_600_000_000_f64,
+            step: 1_f64,
+        },
+    );
+    //when
+    let res = camera.exposure_min().await;
+    //then
+    assert!(res.is_ok());
+    assert_eq!(res.unwrap(), (0_f64));
+}
+
+#[tokio::test]
+async fn exposure_min_fail_max_min_step() {
+    //given
+    let mock = MockCamera::new();
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
+    //when
+    let res = camera.exposure_min().await;
+    //then
+    assert!(res.is_err());
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::INVALID_VALUE.to_string()
+    );
+}
+
+#[tokio::test]
+async fn exposure_resolution_success() {
+    //given
+    let mock = MockCamera::new();
+    let camera = new_camera(
+        mock,
+        MockCameraType::WithExposureMinMaxStep {
+            min: 0_f64,
+            max: 3_600_000_000_f64,
+            step: 1_f64,
+        },
+    );
+    //when
+    let res = camera.exposure_resolution().await;
+    //then
+    assert!(res.is_ok());
+    assert!((res.unwrap() - 1_f64 / 1_000_000_f64).abs() < f64::EPSILON);
+}
+
+#[tokio::test]
+async fn exposure_resolution_fail_max_min_step() {
+    //given
+    let mock = MockCamera::new();
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
+    //when
+    let res = camera.exposure_resolution().await;
+    //then
+    assert!(res.is_err());
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::INVALID_VALUE.to_string()
+    );
 }
 
 #[tokio::test]
@@ -1426,7 +1606,7 @@ async fn image_ready_not_ready_success() {
     let mock = MockCamera::new();
     let camera = new_camera(
         mock,
-        MockCameraType::Exposing {
+        MockCameraType::WithStateExposing {
             expected_duration: 1000_f64,
         },
     );
@@ -1452,6 +1632,18 @@ async fn image_ready_ready_success() {
     //then
     assert!(res.is_ok());
     assert!(res.unwrap());
+}
+
+#[tokio::test]
+async fn image_ready_ready_success_no_image_taken_yet() {
+    //given
+    let mock = MockCamera::new();
+    let camera = new_camera(mock, MockCameraType::WithStateIdle {});
+    //when
+    let res = camera.image_ready().await;
+    //then
+    assert!(res.is_ok());
+    assert!(!res.unwrap());
 }
 
 #[tokio::test]
@@ -1525,6 +1717,7 @@ async fn camera_xsize_success() {
     let camera = new_camera(
         mock,
         MockCameraType::WithRoiAndCCDInfo {
+            times: 1,
             camera_roi: CCDChipArea {
                 start_x: 0,
                 start_y: 0,
@@ -1571,6 +1764,7 @@ async fn camera_ysize_success() {
     let camera = new_camera(
         mock,
         MockCameraType::WithRoiAndCCDInfo {
+            times: 1,
             camera_roi: CCDChipArea {
                 start_x: 0,
                 start_y: 0,
@@ -1617,6 +1811,7 @@ async fn start_x_success() {
     let camera = new_camera(
         mock,
         MockCameraType::WithRoiAndCCDInfo {
+            times: 1,
             camera_roi: CCDChipArea {
                 start_x: 100,
                 start_y: 0,
@@ -1663,6 +1858,7 @@ async fn set_start_x_success() {
     let camera = new_camera(
         mock,
         MockCameraType::WithRoiAndCCDInfo {
+            times: 1,
             camera_roi: CCDChipArea {
                 start_x: 0,
                 start_y: 0,
@@ -1714,14 +1910,14 @@ async fn set_start_x_fail_value_too_small() {
 async fn set_start_x_fail_no_roi() {
     //given
     let mock = MockCamera::new();
-    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 2 });
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
     //when
     let res = camera.set_start_x(100).await;
     //then
     assert!(res.is_err());
     assert_eq!(
         res.err().unwrap().to_string(),
-        ASCOMError::VALUE_NOT_SET.to_string()
+        ASCOMError::INVALID_VALUE.to_string()
     )
 }
 
@@ -1732,6 +1928,7 @@ async fn start_y_success() {
     let camera = new_camera(
         mock,
         MockCameraType::WithRoiAndCCDInfo {
+            times: 1,
             camera_roi: CCDChipArea {
                 start_x: 0,
                 start_y: 100,
@@ -1778,6 +1975,7 @@ async fn set_start_y_success() {
     let camera = new_camera(
         mock,
         MockCameraType::WithRoiAndCCDInfo {
+            times: 1,
             camera_roi: CCDChipArea {
                 start_x: 0,
                 start_y: 0,
@@ -1829,14 +2027,14 @@ async fn set_start_y_fail_value_too_small() {
 async fn set_start_y_fail_no_roi() {
     //given
     let mock = MockCamera::new();
-    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 2 });
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
     //when
     let res = camera.set_start_y(100).await;
     //then
     assert!(res.is_err());
     assert_eq!(
         res.err().unwrap().to_string(),
-        ASCOMError::VALUE_NOT_SET.to_string()
+        ASCOMError::INVALID_VALUE.to_string()
     )
 }
 
@@ -1847,6 +2045,7 @@ async fn num_x_success() {
     let camera = new_camera(
         mock,
         MockCameraType::WithRoiAndCCDInfo {
+            times: 1,
             camera_roi: CCDChipArea {
                 start_x: 0,
                 start_y: 0,
@@ -1893,6 +2092,7 @@ async fn set_num_x_success() {
     let camera = new_camera(
         mock,
         MockCameraType::WithRoiAndCCDInfo {
+            times: 1,
             camera_roi: CCDChipArea {
                 start_x: 0,
                 start_y: 0,
@@ -1944,14 +2144,14 @@ async fn set_num_x_fail_value_too_small() {
 async fn set_num_x_fail_no_roi() {
     //given
     let mock = MockCamera::new();
-    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 2 });
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
     //when
     let res = camera.set_num_x(100).await;
     //then
     assert!(res.is_err());
     assert_eq!(
         res.err().unwrap().to_string(),
-        ASCOMError::VALUE_NOT_SET.to_string()
+        ASCOMError::INVALID_VALUE.to_string()
     )
 }
 
@@ -1962,6 +2162,7 @@ async fn num_y_success() {
     let camera = new_camera(
         mock,
         MockCameraType::WithRoiAndCCDInfo {
+            times: 1,
             camera_roi: CCDChipArea {
                 start_x: 0,
                 start_y: 0,
@@ -2008,6 +2209,7 @@ async fn set_num_y_success() {
     let camera = new_camera(
         mock,
         MockCameraType::WithRoiAndCCDInfo {
+            times: 1,
             camera_roi: CCDChipArea {
                 start_x: 0,
                 start_y: 0,
@@ -2059,14 +2261,14 @@ async fn set_num_y_fail_value_too_small() {
 async fn set_num_y_fail_no_roi() {
     //given
     let mock = MockCamera::new();
-    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 2 });
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
     //when
     let res = camera.set_num_y(100).await;
     //then
     assert!(res.is_err());
     assert_eq!(
         res.err().unwrap().to_string(),
-        ASCOMError::VALUE_NOT_SET.to_string(),
+        ASCOMError::INVALID_VALUE.to_string(),
     )
 }
 
@@ -2079,7 +2281,7 @@ async fn percent_completed_success() {
         .returning(|| Ok(5000_u32));
     let camera = new_camera(
         mock,
-        MockCameraType::Exposing {
+        MockCameraType::WithStateExposing {
             expected_duration: 10000_f64,
         },
     );
@@ -2110,7 +2312,7 @@ async fn percent_completed_ensure_division() {
         .returning(|| Ok(std::u32::MIN));
     let camera = new_camera(
         mock,
-        MockCameraType::Exposing {
+        MockCameraType::WithStateExposing {
             expected_duration: 0_f64,
         },
     );
@@ -2130,7 +2332,7 @@ async fn percent_completed_over_9000() {
         .returning(|| Ok(std::u32::MAX));
     let camera = new_camera(
         mock,
-        MockCameraType::Exposing {
+        MockCameraType::WithStateExposing {
             expected_duration: 0_f64,
         },
     );
@@ -2150,7 +2352,7 @@ async fn percent_completed_fail_get_remaining_exposure_us() {
         .returning(|| Err(eyre!(qhyccd_rs::QHYError::GetExposureRemainingError)));
     let camera = new_camera(
         mock,
-        MockCameraType::Exposing {
+        MockCameraType::WithStateExposing {
             expected_duration: 10000_f64,
         },
     );
@@ -2408,9 +2610,149 @@ async fn start_exposure_fail_dark_exposure() {
     //when
     let res = camera.start_exposure(1000_f64, false).await;
     //then
+    assert!(res.is_err());
     assert_eq!(
         res.err().unwrap().to_string(),
         ASCOMError::invalid_operation("dark frames not supported").to_string(),
+    )
+}
+
+#[tokio::test]
+async fn start_exposure_fail_start_x_greater_than_num_x() {
+    //given
+    let mock = MockCamera::new();
+    let camera = new_camera(
+        mock,
+        MockCameraType::WithRoiAndCCDInfo {
+            times: 3,
+            camera_roi: CCDChipArea {
+                start_x: 100,
+                start_y: 0,
+                width: 10,
+                height: 10,
+            },
+            camera_ccd_info: CCDChipInfo {
+                chip_width: 7.0,
+                chip_height: 5.0,
+                image_width: 1920,
+                image_height: 1080,
+                pixel_width: 2.9,
+                pixel_height: 2.9,
+                bits_per_pixel: 16,
+            },
+        },
+    );
+    //when
+    let res = camera.start_exposure(1000_f64, true).await;
+    //then
+    assert!(res.is_err());
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::invalid_value("StartX > NumX").to_string(),
+    )
+}
+
+#[tokio::test]
+async fn start_exposure_fail_start_y_greater_than_num_y() {
+    //given
+    let mock = MockCamera::new();
+    let camera = new_camera(
+        mock,
+        MockCameraType::WithRoiAndCCDInfo {
+            times: 5,
+            camera_roi: CCDChipArea {
+                start_x: 0,
+                start_y: 100,
+                width: 10,
+                height: 10,
+            },
+            camera_ccd_info: CCDChipInfo {
+                chip_width: 7.0,
+                chip_height: 5.0,
+                image_width: 1920,
+                image_height: 1080,
+                pixel_width: 2.9,
+                pixel_height: 2.9,
+                bits_per_pixel: 16,
+            },
+        },
+    );
+    //when
+    let res = camera.start_exposure(1000_f64, true).await;
+    //then
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::invalid_value("StartY > NumY").to_string(),
+    )
+}
+
+#[tokio::test]
+async fn start_exposure_fail_num_x_greater_than_camera_x_size() {
+    //given
+    let mock = MockCamera::new();
+    let camera = new_camera(
+        mock,
+        MockCameraType::OpenBinningAndRoiAndCCDInfo {
+            times: 8,
+            camera_roi: CCDChipArea {
+                start_x: 0,
+                start_y: 0,
+                width: 50,
+                height: 100,
+            },
+            camera_ccd_info: CCDChipInfo {
+                chip_width: 7.0,
+                chip_height: 5.0,
+                image_width: 20,
+                image_height: 1080,
+                pixel_width: 2.9,
+                pixel_height: 2.9,
+                bits_per_pixel: 16,
+            },
+            camera_binning: BinningMode { symmetric_value: 1 },
+        },
+    );
+    //when
+    let res = camera.start_exposure(1000_f64, true).await;
+    //then
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::invalid_value("NumX > CameraXSize").to_string(),
+    )
+}
+
+#[tokio::test]
+async fn start_exposure_fail_num_y_greater_than_camera_y_size() {
+    //given
+    let mock = MockCamera::new();
+    let camera = new_camera(
+        mock,
+        MockCameraType::OpenBinningAndRoiAndCCDInfo {
+            times: 11,
+            camera_roi: CCDChipArea {
+                start_x: 0,
+                start_y: 0,
+                width: 50,
+                height: 100,
+            },
+            camera_ccd_info: CCDChipInfo {
+                chip_width: 7.0,
+                chip_height: 5.0,
+                image_width: 1920,
+                image_height: 80,
+                pixel_width: 2.9,
+                pixel_height: 2.9,
+                bits_per_pixel: 16,
+            },
+            camera_binning: BinningMode { symmetric_value: 1 },
+        },
+    );
+    //when
+    let res = camera.start_exposure(1000_f64, true).await;
+    //then
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::invalid_value("NumY > CameraYSize").to_string(),
     )
 }
 
@@ -3013,6 +3355,7 @@ async fn pixel_size_x_success() {
     let camera = new_camera(
         mock,
         MockCameraType::WithRoiAndCCDInfo {
+            times: 1,
             camera_roi: CCDChipArea {
                 start_x: 0,
                 start_y: 0,
@@ -3059,6 +3402,7 @@ async fn pixel_size_y_success() {
     let camera = new_camera(
         mock,
         MockCameraType::WithRoiAndCCDInfo {
+            times: 1,
             camera_roi: CCDChipArea {
                 start_x: 0,
                 start_y: 0,
