@@ -44,6 +44,7 @@ mock! {
         pub fn get_ccd_info(&self) -> Result<CCDChipInfo>;
         pub fn set_bit_mode(&self, mode: u32) -> Result<()>;
         pub fn get_parameter(&self, control: Control) -> Result<f64>;
+        pub fn get_parameter_min_max_step(&self, control: Control) -> Result<(f64,f64,f64)>;
         pub fn set_parameter(&self, control: Control, value: f64) -> Result<()>;
         pub fn set_if_available(&self, control: Control, value: f64) -> Result<()>;
         pub fn is_cfw_plugged_in(&self) -> Result<bool>;
