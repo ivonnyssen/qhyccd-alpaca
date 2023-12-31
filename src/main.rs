@@ -131,7 +131,7 @@ impl QhyccdCamera {
         match image.channels {
             1_u32 => match image.bits_per_pixel {
                 8_u32 => {
-                    if image.width as usize * image.height as usize != image.data.len() {
+                    if (image.width as usize * image.height as usize) > image.data.len() {
                         error!(
                             "image data length ({}) does not match width ({}) * height ({})",
                             image.data.len(),
@@ -163,7 +163,7 @@ impl QhyccdCamera {
                     }
                 }
                 16_u32 => {
-                    if image.width as usize * image.height as usize * 2_usize != image.data.len() {
+                    if (image.width as usize * image.height as usize * 2_usize) > image.data.len() {
                         error!(
                             "image data length ({}) does not match width ({}) * height ({}) * 2",
                             image.data.len(),
@@ -1399,7 +1399,7 @@ impl Camera for QhyccdCamera {
                         .gain_min_max
                         .read()
                         .await
-                        .ok_or(ASCOMError::unspecified("gamera reports gain control available, but min, max values are not set after initialization"))?;
+                        .ok_or(ASCOMError::unspecified("camera reports gain control available, but min, max values are not set after initialization"))?;
                     if !(min as i32..=max as i32).contains(&gain) {
                         return Err(ASCOMError::INVALID_VALUE);
                     }
@@ -1486,7 +1486,7 @@ impl Camera for QhyccdCamera {
                         .offset_min_max
                         .read()
                         .await
-                        .ok_or(ASCOMError::unspecified("gamera reports offset control avaialbe, but min, max values are not set after initialization"))?;
+                        .ok_or(ASCOMError::unspecified("camera reports offset control available, but min, max values are not set after initialization"))?;
                     if !(min as i32..=max as i32).contains(&offset) {
                         return Err(ASCOMError::INVALID_VALUE);
                     }
