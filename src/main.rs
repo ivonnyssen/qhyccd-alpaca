@@ -3,7 +3,9 @@ use qhyccd_rs::CCDChipInfo;
 use std::time::SystemTime;
 use tokio::sync::RwLock;
 
-use ascom_alpaca::api::{Camera, CameraState, CargoServerInfo, Device, ImageArray, SensorType};
+use ascom_alpaca::api::{
+    Camera, CameraState, CargoServerInfo, Device, FilterWheel, ImageArray, SensorType,
+};
 use ascom_alpaca::{ASCOMError, ASCOMResult, Server};
 use async_trait::async_trait;
 
@@ -1544,6 +1546,121 @@ impl Camera for QhyccdCamera {
     }
 }
 
+#[derive(Debug)]
+struct QhyccdFilterWheel {
+    unique_id: String,
+    name: String,
+    description: String,
+    device: QhyCamera,
+    num_filters: RwLock<Option<u32>>,
+    position: RwLock<Option<u32>>,
+}
+
+#[async_trait]
+impl Device for QhyccdFilterWheel {
+    fn static_name(&self) -> &str {
+        &self.name
+    }
+
+    fn unique_id(&self) -> &str {
+        &self.unique_id
+    }
+
+    async fn connected(&self) -> ASCOMResult<bool> {
+        self.device.is_open().map_err(|e| {
+            error!(?e, "is_open failed");
+            ASCOMError::NOT_CONNECTED
+        })
+    }
+
+    async fn set_connected(&self, connected: bool) -> ASCOMResult {
+        match self.connected().await? == connected {
+            true => return Ok(()),
+            false => match connected {
+                true => {
+                    self.device.open().map_err(|e| {
+                        error!(?e, "open failed");
+                        ASCOMError::NOT_CONNECTED
+                    })?;
+                    self.device.init().map_err(|e| {
+                        error!(?e, "camera init failed");
+                        ASCOMError::NOT_CONNECTED
+                    })?;
+                    match self.device.is_cfw_plugged_in() {
+                        Ok(true) => {
+                            let mut lock = self.num_filters.write().await;
+                            *lock = match self.device.get_number_of_filters() {
+                                Some(num) => Some(num),
+                                None => {
+                                    error!("get_number_of_filters failed, even though is_cfw_plugged_in returned true");
+                                    return Err(ASCOMError::NOT_CONNECTED);
+                                }
+                            };
+                            let mut lock = self.position.write().await;
+                            *lock = match self.device.get_fw_position() {
+                                Some(position) => Some(position),
+                                None => {
+                                    error!("get_fw_position failed, even though is_cfw_plugged_in returned true");
+                                    return Err(ASCOMError::NOT_CONNECTED);
+                                }
+                            }
+                        }
+                        Ok(false) => {
+                            debug!("filter wheel not plugged in");
+                        }
+                        Err(e) => {
+                            error!(?e, "is_cfw_plugged_in failed");
+                            return Err(ASCOMError::NOT_CONNECTED);
+                        }
+                    }
+                    Ok(())
+                }
+                false => self.device.close().map_err(|e| {
+                    error!(?e, "close_camera failed");
+                    ASCOMError::NOT_CONNECTED
+                }),
+            },
+        }
+    }
+
+    async fn description(&self) -> ASCOMResult<String> {
+        Ok(self.description.clone())
+    }
+
+    async fn driver_info(&self) -> ASCOMResult<String> {
+        //TODO: add link to crates.io once published
+        Ok("qhyccd_alpaca-rs".to_owned())
+    }
+
+    async fn driver_version(&self) -> ASCOMResult<String> {
+        Ok(env!("CARGO_PKG_VERSION").to_owned())
+    }
+}
+
+#[async_trait]
+impl FilterWheel for QhyccdFilterWheel {
+    async fn position(&self) -> ASCOMResult<i32> {
+        match self.device.get_fw_position() {
+            Some(position) => Ok(position as i32),
+            None => {
+                error!("failed to retrieve position for filter wheel");
+                Err(ASCOMError::NOT_CONNECTED)
+            }
+        }
+    }
+
+    async fn set_position(&self, position: i32) -> ASCOMResult {
+        let position = (position + 48_i32) as u32;
+        match self.device.set_fw_position(position) {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                error!(?e, "failed to set filter wheel position");
+                Err(ASCOMError::NOT_CONNECTED)
+            }
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() -> eyre::Result<std::convert::Infallible> {
     tracing_subscriber::fmt()
@@ -1561,7 +1678,6 @@ async fn main() -> eyre::Result<std::convert::Infallible> {
     let sdk_version = sdk.version().expect("get_sdk_version failed");
     trace!(sdk_version = ?sdk_version);
     trace!(cameras = ?sdk.cameras().count());
-    trace!(filter_wheels = ?sdk.filter_wheels().count());
 
     sdk.cameras().for_each(|c| {
         let camera = QhyccdCamera {
@@ -1582,8 +1698,36 @@ async fn main() -> eyre::Result<std::convert::Infallible> {
             gain_min_max: RwLock::new(None),
             offset_min_max: RwLock::new(None),
         };
-        tracing::debug!(?camera, "Registering webcam");
-        server.devices.register(camera);
+        tracing::debug!(?camera, "Registering camera");
+        server
+            .devices
+            .register::<dyn ascom_alpaca::api::Camera>(camera);
+        match c.open() {
+            Ok(_) => match c.is_cfw_plugged_in() {
+                Ok(true) => {
+                    let filter_wheel = QhyccdFilterWheel {
+                        unique_id: c.id().to_owned(),
+                        name: c.id().to_owned(),
+                        description: "QHYCCD filter wheel".to_owned(),
+                        device: c.clone(),
+                        num_filters: RwLock::new(None),
+                        position: RwLock::new(None),
+                    };
+                    server
+                        .devices
+                        .register::<dyn ascom_alpaca::api::FilterWheel>(filter_wheel);
+                }
+                Ok(false) => {
+                    debug!(?c, "filter wheel not plugged in");
+                }
+                Err(e) => {
+                    error!(?e, "failed to get filter wheel plugged in state");
+                }
+            },
+            Err(e) => {
+                error!(?e, "failed to open camera");
+            }
+        };
     });
 
     server.start().await

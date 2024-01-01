@@ -7,7 +7,7 @@ mock! {
     pub Sdk {
         pub fn new() -> Result<MockSdk>;
         pub fn cameras(&self) -> impl Iterator<Item = MockCamera>;
-        pub fn filter_wheels(&self) -> impl Iterator<Item = &'static dyn qhyccd_rs::FilterWheel>;
+        pub fn filter_wheels(&self) -> impl Iterator<Item = MockFilterWheel>;
         pub fn version(&self) -> Result<qhyccd_rs::SDKVersion>;
     }
 }
@@ -51,8 +51,23 @@ mock! {
         pub fn open(&self) -> Result<()>;
         pub fn close(&self) -> Result<()>;
         pub fn is_open(&self) -> Result<bool>;
+        pub fn get_number_of_filters(&self) -> Option<u32>;
+        pub fn get_fw_position(&self) -> Option<u32>;
+        pub fn set_fw_position(&self, position: u32) -> Result<()>;
     }
     impl Clone for Camera {
         fn clone(&self) -> Self;
+    }
+}
+
+mock! {
+    #[derive(Debug)]
+    pub FilterWheel {
+        pub fn get_number_of_filters(&self) -> Result<u32>;
+        pub fn get_fw_position(&self) -> Result<u32>;
+        pub fn set_fw_position(&self, position: u32) -> Result<()>;
+        pub fn open(&self) -> Result<()>;
+        pub fn close(&self) -> Result<()>;
+        pub fn is_open(&self) -> Result<bool>;
     }
 }

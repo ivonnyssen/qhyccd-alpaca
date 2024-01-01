@@ -25,7 +25,7 @@ ascom-alpaca = { version = "1.0.0-beta.1", features = [
 async-trait = "0.1.75"
 custom_debug = "0.5.1"
 eyre = "0.6.11"
-qhyccd-rs = "0.1.4"
+qhyccd-rs = { version = "0.1.5", path = "../qhyccd-rs" }
 ndarray = "0.15.6"
 parking_lot = "0.12.1"
 strum = "0.25.0"
