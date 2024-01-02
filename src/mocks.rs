@@ -63,11 +63,16 @@ mock! {
 mock! {
     #[derive(Debug)]
     pub FilterWheel {
+        pub fn id(&self) -> &str;
         pub fn get_number_of_filters(&self) -> Result<u32>;
         pub fn get_fw_position(&self) -> Result<u32>;
         pub fn set_fw_position(&self, position: u32) -> Result<()>;
         pub fn open(&self) -> Result<()>;
         pub fn close(&self) -> Result<()>;
         pub fn is_open(&self) -> Result<bool>;
+        pub fn is_cfw_plugged_in(&self) -> Result<bool>;
+    }
+    impl Clone for FilterWheel {
+        fn clone(&self) -> Self;
     }
 }
