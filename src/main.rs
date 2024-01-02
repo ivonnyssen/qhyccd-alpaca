@@ -9,8 +9,7 @@ use ascom_alpaca::api::{
 use ascom_alpaca::{ASCOMError, ASCOMResult, Server};
 use async_trait::async_trait;
 
-use eyre::eyre;
-use eyre::Result;
+use eyre::{eyre, Result};
 use ndarray::Array3;
 
 #[macro_use]
@@ -80,17 +79,6 @@ struct QhyccdCamera {
     state: RwLock<State>,
     gain_min_max: RwLock<Option<(f64, f64)>>,
     offset_min_max: RwLock<Option<(f64, f64)>>,
-}
-
-#[derive(Debug)]
-struct QhyccdFilterWheel {
-    unique_id: String,
-    name: String,
-    description: String,
-    positions: RwLock<Option<u32>>,
-    target_position: RwLock<Option<u32>>,
-    is_moving: RwLock<Option<bool>>,
-    device: QhyFilterWheel,
 }
 
 impl QhyccdCamera {
@@ -1558,6 +1546,16 @@ impl Camera for QhyccdCamera {
     }
 }
 
+#[derive(Debug)]
+struct QhyccdFilterWheel {
+    unique_id: String,
+    name: String,
+    description: String,
+    number_of_filters: RwLock<Option<u32>>,
+    target_position: RwLock<Option<u32>>,
+    device: QhyFilterWheel,
+}
+
 #[async_trait]
 impl Device for QhyccdFilterWheel {
     fn static_name(&self) -> &str {
@@ -1584,7 +1582,7 @@ impl Device for QhyccdFilterWheel {
                         error!(?e, "open failed");
                         ASCOMError::NOT_CONNECTED
                     })?;
-                    let mut lock = self.positions.write().await;
+                    let mut lock = self.number_of_filters.write().await;
                     let number_of_filters = self.device.get_number_of_filters().map_err(|e| {
                         error!(?e, "get_number_of_filters failed");
                         ASCOMError::NOT_CONNECTED
@@ -1626,10 +1624,32 @@ impl FilterWheel for QhyccdFilterWheel {
     async fn position(&self) -> ASCOMResult<i32> {
         match self.connected().await {
             Ok(true) => match self.device.is_cfw_plugged_in() {
-                Ok(true) => Ok(0),
+                Ok(true) => {
+                    let lock = self.target_position.read().await;
+                    match *lock {
+                        Some(target_position) => match self.device.get_fw_position() {
+                            Ok(actual) => {
+                                if actual == target_position {
+                                    Ok(actual as i32)
+                                } else {
+                                    trace!("moving - target_position set to {}, but filter wheel is at {}", target_position, actual);
+                                    Ok(-1)
+                                }
+                            }
+                            Err(e) => {
+                                error!(?e, "get_fw_position failed");
+                                Err(ASCOMError::UNSPECIFIED)
+                            }
+                        },
+                        None => {
+                            error!("target_position not set, but filter wheel connected");
+                            Err(ASCOMError::NOT_CONNECTED)
+                        }
+                    }
+                }
                 Ok(false) => {
                     debug!("filter wheel not plugged in");
-                    Err(ASCOMError::NOT_IMPLEMENTED)
+                    Err(ASCOMError::NOT_CONNECTED)
                 }
                 Err(e) => {
                     error!(?e, "failed to get filter wheel plugged in state");
@@ -1648,7 +1668,7 @@ impl FilterWheel for QhyccdFilterWheel {
         match self.connected().await {
             Ok(true) => match self.device.is_cfw_plugged_in() {
                 Ok(true) => {
-                    let number_of_filters = match *self.positions.read().await {
+                    let number_of_filters = match *self.number_of_filters.read().await {
                         Some(number_of_filters) => number_of_filters,
                         None => {
                             error!("number of filters not set, but filter wheel connected");
@@ -1664,7 +1684,6 @@ impl FilterWheel for QhyccdFilterWheel {
                             return Ok(());
                         }
                     }
-                    let mut moving = self.is_moving.write().await;
                     self.device.set_fw_position(position as u32).map_or_else(
                         |e| {
                             error!(?e, "set_fw_position failed");
@@ -1672,7 +1691,6 @@ impl FilterWheel for QhyccdFilterWheel {
                         },
                         |_| {
                             *lock = Some(position as u32);
-                            *moving = Some(true);
                             Ok(())
                         },
                     )
@@ -1739,23 +1757,25 @@ async fn main() -> eyre::Result<std::convert::Infallible> {
     });
 
     sdk.filter_wheels().for_each(|c| {
-        let camera = QhyccdFilterWheel {
+        let filter_wheel = QhyccdFilterWheel {
             unique_id: c.id().to_owned(),
             name: c.id().to_owned(),
             description: "QHYCCD filter wheel".to_owned(),
-            positions: RwLock::new(None),
+            number_of_filters: RwLock::new(None),
             target_position: RwLock::new(None),
-            is_moving: RwLock::new(None),
             device: c.clone(),
         };
-        tracing::debug!(?camera, "Registering filter wheel");
+        tracing::debug!(?filter_wheel, "Registering filter wheel");
         server
             .devices
-            .register::<dyn ascom_alpaca::api::FilterWheel>(camera);
+            .register::<dyn ascom_alpaca::api::FilterWheel>(filter_wheel);
     });
 
     server.start().await
 }
 
 #[cfg(test)]
-mod tests;
+mod test_camera;
+
+#[cfg(test)]
+mod test_filter_wheel;
