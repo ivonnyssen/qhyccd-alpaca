@@ -1768,8 +1768,8 @@ async fn main() -> eyre::Result<std::convert::Infallible> {
 
     sdk.filter_wheels().for_each(|c| {
         let filter_wheel = QhyccdFilterWheel {
-            unique_id: c.id().to_owned(),
-            name: c.id().to_owned(),
+            unique_id: format!("CFW={}", c.id()),
+            name: format!("CFW={}", c.id()),
             description: "QHYCCD filter wheel".to_owned(),
             number_of_filters: RwLock::new(None),
             target_position: RwLock::new(None),
