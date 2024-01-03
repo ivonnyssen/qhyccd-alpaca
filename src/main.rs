@@ -1,5 +1,6 @@
 #![warn(clippy::integer_division)]
 use qhyccd_rs::CCDChipInfo;
+use std::i32;
 use std::time::SystemTime;
 use tokio::sync::RwLock;
 
@@ -1620,14 +1621,41 @@ impl Device for QhyccdFilterWheel {
 
 #[async_trait]
 impl FilterWheel for QhyccdFilterWheel {
+    /// An integer array of filter focus offsets.
+    async fn focus_offsets(&self) -> ASCOMResult<Vec<i32>> {
+        match *self.number_of_filters.read().await {
+            Some(number_of_filters) => Ok(vec![0; number_of_filters as usize]),
+            None => {
+                error!("number of filters not set, but filter wheel connected");
+                Err(ASCOMError::NOT_CONNECTED)
+            }
+        }
+    }
+
+    /// The names of the filters
+    async fn names(&self) -> ASCOMResult<Vec<String>> {
+        match *self.number_of_filters.read().await {
+            Some(number_of_filters) => {
+                let mut names = Vec::with_capacity(number_of_filters as usize);
+                for i in 0..number_of_filters {
+                    names.push(format!("Filter{}", i));
+                }
+                Ok(names)
+            }
+            None => {
+                error!("number of filters not set, but filter wheel connected");
+                Err(ASCOMError::NOT_CONNECTED)
+            }
+        }
+    }
     /// Returns the current filter wheel position
     async fn position(&self) -> ASCOMResult<i32> {
         match self.connected().await {
-            Ok(true) => match self.device.is_cfw_plugged_in() {
-                Ok(true) => {
-                    let lock = self.target_position.read().await;
-                    match *lock {
-                        Some(target_position) => match self.device.get_fw_position() {
+            Ok(true) => {
+                let lock = self.target_position.read().await;
+                match *lock {
+                    Some(target_position) => {
+                        match self.device.get_fw_position() {
                             Ok(actual) => {
                                 if actual == target_position {
                                     Ok(actual as i32)
@@ -1640,22 +1668,14 @@ impl FilterWheel for QhyccdFilterWheel {
                                 error!(?e, "get_fw_position failed");
                                 Err(ASCOMError::UNSPECIFIED)
                             }
-                        },
-                        None => {
-                            error!("target_position not set, but filter wheel connected");
-                            Err(ASCOMError::NOT_CONNECTED)
                         }
                     }
+                    None => {
+                        error!("target_position not set, but filter wheel connected");
+                        Err(ASCOMError::NOT_CONNECTED)
+                    }
                 }
-                Ok(false) => {
-                    debug!("filter wheel not plugged in");
-                    Err(ASCOMError::NOT_CONNECTED)
-                }
-                Err(e) => {
-                    error!(?e, "failed to get filter wheel plugged in state");
-                    Err(ASCOMError::UNSPECIFIED)
-                }
-            },
+            }
             _ => {
                 error!("camera not connected");
                 Err(ASCOMError::NOT_CONNECTED)
@@ -1666,44 +1686,34 @@ impl FilterWheel for QhyccdFilterWheel {
     /// Sets the filter wheel position
     async fn set_position(&self, position: i32) -> ASCOMResult {
         match self.connected().await {
-            Ok(true) => match self.device.is_cfw_plugged_in() {
-                Ok(true) => {
-                    let number_of_filters = match *self.number_of_filters.read().await {
-                        Some(number_of_filters) => number_of_filters,
-                        None => {
-                            error!("number of filters not set, but filter wheel connected");
-                            return Err(ASCOMError::NOT_CONNECTED);
-                        }
-                    };
-                    if !(0..=number_of_filters as i32).contains(&position) {
-                        return Err(ASCOMError::INVALID_VALUE);
+            Ok(true) => {
+                let number_of_filters = match *self.number_of_filters.read().await {
+                    Some(number_of_filters) => number_of_filters,
+                    None => {
+                        error!("number of filters not set, but filter wheel connected");
+                        return Err(ASCOMError::NOT_CONNECTED);
                     }
-                    let mut lock = self.target_position.write().await;
-                    if let Some(target_position) = *lock {
-                        if target_position == position as u32 {
-                            return Ok(());
-                        }
+                };
+                if !(0..number_of_filters as i32).contains(&position) {
+                    return Err(ASCOMError::INVALID_VALUE);
+                }
+                let mut lock = self.target_position.write().await;
+                if let Some(target_position) = *lock {
+                    if target_position == position as u32 {
+                        return Ok(());
                     }
-                    self.device.set_fw_position(position as u32).map_or_else(
-                        |e| {
-                            error!(?e, "set_fw_position failed");
-                            Err(ASCOMError::UNSPECIFIED)
-                        },
-                        |_| {
-                            *lock = Some(position as u32);
-                            Ok(())
-                        },
-                    )
                 }
-                Ok(false) => {
-                    debug!("filter wheel not plugged in");
-                    Err(ASCOMError::NOT_IMPLEMENTED)
-                }
-                Err(e) => {
-                    error!(?e, "failed to get filter wheel plugged in state");
-                    Err(ASCOMError::UNSPECIFIED)
-                }
-            },
+                self.device.set_fw_position(position as u32).map_or_else(
+                    |e| {
+                        error!(?e, "set_fw_position failed");
+                        Err(ASCOMError::UNSPECIFIED)
+                    },
+                    |_| {
+                        *lock = Some(position as u32);
+                        Ok(())
+                    },
+                )
+            }
             _ => {
                 error!("camera not connected");
                 Err(ASCOMError::NOT_CONNECTED)
