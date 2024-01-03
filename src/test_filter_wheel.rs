@@ -2,8 +2,10 @@ use super::*;
 use crate::mocks::MockFilterWheel;
 
 enum MockFilterWheelType {
-    Untouched,
     IsOpenTrue {
+        times: usize,
+    },
+    IsOpenFalse {
         times: usize,
     },
     WithTargetPosition {
@@ -23,9 +25,11 @@ fn new_filter_wheel(
     let mut number_of_filters = RwLock::new(None);
     let mut target_position = RwLock::new(None);
     match variant {
-        MockFilterWheelType::Untouched => {}
         MockFilterWheelType::IsOpenTrue { times } => {
             device.expect_is_open().times(times).returning(|| Ok(true));
+        }
+        MockFilterWheelType::IsOpenFalse { times } => {
+            device.expect_is_open().times(times).returning(|| Ok(false));
         }
         MockFilterWheelType::WithTargetPosition { target } => {
             device.expect_is_open().once().returning(|| Ok(true));
@@ -49,6 +53,29 @@ fn new_filter_wheel(
         number_of_filters,
         target_position,
     }
+}
+
+#[tokio::test]
+async fn set_connected_success_not_connected() {
+    //given
+    let mut mock = MockFilterWheel::new();
+    mock.expect_open().once().returning(|| Ok(()));
+    mock.expect_get_number_of_filters()
+        .once()
+        .returning(|| Ok(7));
+    mock.expect_get_fw_position().once().returning(|| Ok(0));
+    let filter_wheel = new_filter_wheel(mock, MockFilterWheelType::IsOpenFalse { times: 1 });
+    let res = filter_wheel.set_connected(true).await;
+    assert!(res.is_ok());
+}
+
+#[tokio::test]
+async fn set_connected_success_connected() {
+    //given
+    let mock = MockFilterWheel::new();
+    let filter_wheel = new_filter_wheel(mock, MockFilterWheelType::IsOpenTrue { times: 1 });
+    let res = filter_wheel.set_connected(true).await;
+    assert!(res.is_ok());
 }
 
 #[tokio::test]
