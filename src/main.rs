@@ -328,7 +328,7 @@ impl Device for QhyccdCamera {
 
     async fn driver_info(&self) -> ASCOMResult<String> {
         //TODO: add link to crates.io once published
-        Ok("qhyccd_alpaca-rs".to_owned())
+        Ok("qhyccd-alpaca-rs".to_owned())
     }
 
     async fn driver_version(&self) -> ASCOMResult<String> {
@@ -1611,7 +1611,7 @@ impl Device for QhyccdFilterWheel {
 
     async fn driver_info(&self) -> ASCOMResult<String> {
         //TODO: add link to crates.io once published
-        Ok("qhyccd_alpaca-rs".to_owned())
+        Ok("qhyccd-alpaca-rs".to_owned())
     }
 
     async fn driver_version(&self) -> ASCOMResult<String> {

@@ -311,7 +311,7 @@ async fn qhyccd_camera() {
     assert_eq!(camera.static_name(), "QHYCCD-test_camera");
     assert_eq!(camera.unique_id(), "test_camera");
     assert_eq!(camera.description().await.unwrap(), "QHYCCD camera");
-    assert_eq!(camera.driver_info().await.unwrap(), "qhyccd_alpaca-rs");
+    assert_eq!(camera.driver_info().await.unwrap(), "qhyccd-alpaca-rs");
     assert_eq!(
         camera.driver_version().await.unwrap(),
         env!("CARGO_PKG_VERSION")

@@ -2,6 +2,7 @@ use super::*;
 use crate::mocks::MockFilterWheel;
 
 enum MockFilterWheelType {
+    Untouched,
     IsOpenTrue {
         times: usize,
     },
@@ -25,6 +26,7 @@ fn new_filter_wheel(
     let mut number_of_filters = RwLock::new(None);
     let mut target_position = RwLock::new(None);
     match variant {
+        MockFilterWheelType::Untouched => {}
         MockFilterWheelType::IsOpenTrue { times } => {
             device.expect_is_open().times(times).returning(|| Ok(true));
         }
@@ -56,6 +58,57 @@ fn new_filter_wheel(
 }
 
 #[tokio::test]
+async fn new_success() {
+    //given
+    let mock = MockFilterWheel::new();
+    //when
+    let filter_wheel = new_filter_wheel(mock, MockFilterWheelType::Untouched);
+    //then
+    assert_eq!(filter_wheel.unique_id(), "test-filter_wheel");
+    assert_eq!(filter_wheel.static_name(), "QHYCCD-test_filter_wheel");
+    assert_eq!(
+        filter_wheel.description().await.unwrap(),
+        "QHYCCD filter wheel"
+    );
+    assert_eq!(
+        filter_wheel.driver_info().await.unwrap(),
+        "qhyccd-alpaca-rs"
+    );
+    assert_eq!(
+        filter_wheel.driver_version().await.unwrap(),
+        env!("CARGO_PKG_VERSION")
+    );
+}
+
+#[tokio::test]
+async fn connected_success() {
+    //given
+    let mock = MockFilterWheel::new();
+    let filter_wheel = new_filter_wheel(mock, MockFilterWheelType::IsOpenTrue { times: 1 });
+    //when
+    let res = filter_wheel.connected().await;
+    //then
+    assert!(res.unwrap());
+}
+
+#[tokio::test]
+async fn connected_fail() {
+    //given
+    let mut mock = MockFilterWheel::new();
+    mock.expect_is_open()
+        .once()
+        .returning(|| Err(eyre!("error")));
+    let filter_wheel = new_filter_wheel(mock, MockFilterWheelType::Untouched);
+    //when
+    let res = filter_wheel.connected().await;
+    //then
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::NOT_CONNECTED.to_string()
+    );
+}
+
+#[tokio::test]
 async fn set_connected_success_not_connected() {
     //given
     let mut mock = MockFilterWheel::new();
@@ -65,7 +118,9 @@ async fn set_connected_success_not_connected() {
         .returning(|| Ok(7));
     mock.expect_get_fw_position().once().returning(|| Ok(0));
     let filter_wheel = new_filter_wheel(mock, MockFilterWheelType::IsOpenFalse { times: 1 });
+    //when
     let res = filter_wheel.set_connected(true).await;
+    //then
     assert!(res.is_ok());
 }
 
@@ -74,8 +129,93 @@ async fn set_connected_success_connected() {
     //given
     let mock = MockFilterWheel::new();
     let filter_wheel = new_filter_wheel(mock, MockFilterWheelType::IsOpenTrue { times: 1 });
+    //when
     let res = filter_wheel.set_connected(true).await;
+    //then
     assert!(res.is_ok());
+}
+
+#[tokio::test]
+async fn set_connected_fail_is_open() {
+    //given
+    let mut mock = MockFilterWheel::new();
+    mock.expect_is_open()
+        .once()
+        .returning(|| Err(eyre!("error")));
+    let filter_wheel = new_filter_wheel(mock, MockFilterWheelType::Untouched);
+    //when
+    let res = filter_wheel.set_connected(true).await;
+    //then
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::NOT_CONNECTED.to_string()
+    );
+}
+
+#[tokio::test]
+async fn set_connected_fail_get_number_of_filters() {
+    //given
+    let mut mock = MockFilterWheel::new();
+    mock.expect_open().once().returning(|| Ok(()));
+    mock.expect_get_number_of_filters()
+        .once()
+        .returning(|| Err(eyre!("error")));
+    let filter_wheel = new_filter_wheel(mock, MockFilterWheelType::IsOpenFalse { times: 1 });
+    //when
+    let res = filter_wheel.set_connected(true).await;
+    //then
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::NOT_CONNECTED.to_string()
+    );
+}
+
+#[tokio::test]
+async fn set_connected_fail_get_fw_position() {
+    //given
+    let mut mock = MockFilterWheel::new();
+    mock.expect_open().once().returning(|| Ok(()));
+    mock.expect_get_number_of_filters()
+        .once()
+        .returning(|| Ok(7));
+    mock.expect_get_fw_position()
+        .once()
+        .returning(|| Err(eyre!("error")));
+    let filter_wheel = new_filter_wheel(mock, MockFilterWheelType::IsOpenFalse { times: 1 });
+    //when
+    let res = filter_wheel.set_connected(true).await;
+    //then
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::NOT_CONNECTED.to_string()
+    );
+}
+
+#[tokio::test]
+async fn set_connected_false_success() {
+    //given
+    let mut mock = MockFilterWheel::new();
+    mock.expect_close().once().returning(|| Ok(()));
+    let filter_wheel = new_filter_wheel(mock, MockFilterWheelType::IsOpenTrue { times: 1 });
+    //when
+    let res = filter_wheel.set_connected(false).await;
+    //then
+    assert!(res.is_ok());
+}
+
+#[tokio::test]
+async fn set_connected_false_fail() {
+    //given
+    let mut mock = MockFilterWheel::new();
+    mock.expect_close().once().returning(|| Err(eyre!("error")));
+    let filter_wheel = new_filter_wheel(mock, MockFilterWheelType::IsOpenTrue { times: 1 });
+    //when
+    let res = filter_wheel.set_connected(false).await;
+    //then
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::NOT_CONNECTED.to_string()
+    );
 }
 
 #[tokio::test]
@@ -85,7 +225,9 @@ async fn get_position_success_not_moving() {
     mock.expect_get_fw_position().returning(|| Ok(5));
     let filter_wheel =
         new_filter_wheel(mock, MockFilterWheelType::WithTargetPosition { target: 5 });
+    //when
     let position = filter_wheel.position().await;
+    //then
     assert_eq!(position.unwrap(), 5);
 }
 
@@ -96,7 +238,9 @@ async fn get_position_success_moving() {
     mock.expect_get_fw_position().returning(|| Ok(5));
     let filter_wheel =
         new_filter_wheel(mock, MockFilterWheelType::WithTargetPosition { target: 1 });
+    //when
     let position = filter_wheel.position().await;
+    //then
     assert_eq!(position.unwrap(), -1);
 }
 
@@ -105,7 +249,9 @@ async fn get_position_fail_target_position_none() {
     //given
     let mock = MockFilterWheel::new();
     let filter_wheel = new_filter_wheel(mock, MockFilterWheelType::IsOpenTrue { times: 1 });
+    //when
     let res = filter_wheel.position().await;
+    //then
     assert_eq!(
         res.err().unwrap().to_string(),
         ASCOMError::NOT_CONNECTED.to_string()
@@ -120,7 +266,9 @@ async fn get_position_fail_get_fw_position() {
         .returning(|| Err(eyre!(qhyccd_rs::QHYError::GetCfwPositionError)));
     let filter_wheel =
         new_filter_wheel(mock, MockFilterWheelType::WithTargetPosition { target: 5 });
+    //when
     let res = filter_wheel.position().await;
+    //then
     assert_eq!(
         res.err().unwrap().to_string(),
         ASCOMError::UNSPECIFIED.to_string()
@@ -144,7 +292,9 @@ async fn set_position_success() {
             target: 0,
         },
     );
+    //when
     let res = filter_wheel.set_position(5).await;
+    //then
     assert!(res.is_ok());
     assert_eq!(filter_wheel.position().await.unwrap(), 5);
 }
