@@ -1623,10 +1623,16 @@ impl Device for QhyccdFilterWheel {
 impl FilterWheel for QhyccdFilterWheel {
     /// An integer array of filter focus offsets.
     async fn focus_offsets(&self) -> ASCOMResult<Vec<i32>> {
-        match *self.number_of_filters.read().await {
-            Some(number_of_filters) => Ok(vec![0; number_of_filters as usize]),
-            None => {
-                error!("number of filters not set, but filter wheel connected");
+        match self.connected().await {
+            Ok(true) => match *self.number_of_filters.read().await {
+                Some(number_of_filters) => Ok(vec![0; number_of_filters as usize]),
+                None => {
+                    error!("number of filters not set, but filter wheel connected");
+                    Err(ASCOMError::NOT_CONNECTED)
+                }
+            },
+            _ => {
+                error!("camera not connected");
                 Err(ASCOMError::NOT_CONNECTED)
             }
         }
@@ -1634,16 +1640,22 @@ impl FilterWheel for QhyccdFilterWheel {
 
     /// The names of the filters
     async fn names(&self) -> ASCOMResult<Vec<String>> {
-        match *self.number_of_filters.read().await {
-            Some(number_of_filters) => {
-                let mut names = Vec::with_capacity(number_of_filters as usize);
-                for i in 0..number_of_filters {
-                    names.push(format!("Filter{}", i));
+        match self.connected().await {
+            Ok(true) => match *self.number_of_filters.read().await {
+                Some(number_of_filters) => {
+                    let mut names = Vec::with_capacity(number_of_filters as usize);
+                    for i in 0..number_of_filters {
+                        names.push(format!("Filter{}", i));
+                    }
+                    Ok(names)
                 }
-                Ok(names)
-            }
-            None => {
-                error!("number of filters not set, but filter wheel connected");
+                None => {
+                    error!("number of filters not set, but filter wheel connected");
+                    Err(ASCOMError::NOT_CONNECTED)
+                }
+            },
+            _ => {
+                error!("camera not connected");
                 Err(ASCOMError::NOT_CONNECTED)
             }
         }

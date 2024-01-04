@@ -12,6 +12,10 @@ enum MockFilterWheelType {
     WithTargetPosition {
         target: u32,
     },
+    WithFilters {
+        times: usize,
+        filters: u32,
+    },
     WithFiltersAndTargetPosition {
         times: usize,
         filters: u32,
@@ -36,6 +40,10 @@ fn new_filter_wheel(
         MockFilterWheelType::WithTargetPosition { target } => {
             device.expect_is_open().once().returning(|| Ok(true));
             target_position = RwLock::new(Some(target));
+        }
+        MockFilterWheelType::WithFilters { times, filters } => {
+            device.expect_is_open().times(times).returning(|| Ok(true));
+            number_of_filters = RwLock::new(Some(filters));
         }
         MockFilterWheelType::WithFiltersAndTargetPosition {
             times,
@@ -219,6 +227,68 @@ async fn set_connected_false_fail() {
 }
 
 #[tokio::test]
+async fn focus_offset_success() {
+    //given
+    let mock = MockFilterWheel::new();
+    let filter_wheel = new_filter_wheel(
+        mock,
+        MockFilterWheelType::WithFilters {
+            times: 1,
+            filters: 5,
+        },
+    );
+    //when
+    let res = filter_wheel.focus_offsets().await;
+    //then
+    assert_eq!(res.unwrap(), vec![0_i32; 5]);
+}
+
+#[tokio::test]
+async fn focus_offset_fail() {
+    //given
+    let mock = MockFilterWheel::new();
+    let filter_wheel = new_filter_wheel(mock, MockFilterWheelType::IsOpenTrue { times: 1 });
+    //when
+    let res = filter_wheel.focus_offsets().await;
+    //then
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::NOT_CONNECTED.to_string()
+    );
+}
+
+#[tokio::test]
+async fn names_success() {
+    //given
+    let mock = MockFilterWheel::new();
+    let filter_wheel = new_filter_wheel(
+        mock,
+        MockFilterWheelType::WithFilters {
+            times: 1,
+            filters: 2,
+        },
+    );
+    //when
+    let res = filter_wheel.names().await;
+    //then
+    assert_eq!(res.unwrap(), vec!["Filter0", "Filter1"]);
+}
+
+#[tokio::test]
+async fn names_fail() {
+    //given
+    let mock = MockFilterWheel::new();
+    let filter_wheel = new_filter_wheel(mock, MockFilterWheelType::IsOpenTrue { times: 1 });
+    //when
+    let res = filter_wheel.names().await;
+    //then
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::NOT_CONNECTED.to_string()
+    );
+}
+
+#[tokio::test]
 async fn get_position_success_not_moving() {
     //given
     let mut mock = MockFilterWheel::new();
@@ -297,4 +367,105 @@ async fn set_position_success() {
     //then
     assert!(res.is_ok());
     assert_eq!(filter_wheel.position().await.unwrap(), 5);
+}
+
+#[tokio::test]
+async fn set_position_success_number_of_target_position_none() {
+    //given
+    let mut mock = MockFilterWheel::new();
+    mock.expect_set_fw_position()
+        .once()
+        .withf(|position| *position == 2)
+        .returning(|_| Ok(()));
+    let filter_wheel = new_filter_wheel(
+        mock,
+        MockFilterWheelType::WithFilters {
+            times: 1,
+            filters: 5,
+        },
+    );
+    //when
+    let res = filter_wheel.set_position(2).await;
+    //then
+    assert!(res.is_ok());
+}
+
+#[tokio::test]
+async fn set_position_success_already_at_target() {
+    //given
+    let mut mock = MockFilterWheel::new();
+    mock.expect_get_fw_position().returning(|| Ok(5));
+    let filter_wheel = new_filter_wheel(
+        mock,
+        MockFilterWheelType::WithFiltersAndTargetPosition {
+            times: 2,
+            filters: 6,
+            target: 5,
+        },
+    );
+    //when
+    let res = filter_wheel.set_position(5).await;
+    //then
+    assert!(res.is_ok());
+    assert_eq!(filter_wheel.position().await.unwrap(), 5);
+}
+
+#[tokio::test]
+async fn set_position_fail_invalid_value() {
+    //given
+    let mock = MockFilterWheel::new();
+    let filter_wheel = new_filter_wheel(
+        mock,
+        MockFilterWheelType::WithFilters {
+            times: 1,
+            filters: 5,
+        },
+    );
+    //when
+    let res = filter_wheel.set_position(5).await;
+    //then
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::INVALID_VALUE.to_string()
+    );
+}
+
+#[tokio::test]
+async fn set_position_fail_number_of_filters_none() {
+    //given
+    let mock = MockFilterWheel::new();
+    let filter_wheel = new_filter_wheel(mock, MockFilterWheelType::IsOpenTrue { times: 1 });
+    //when
+    let res = filter_wheel.set_position(5).await;
+    //then
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::NOT_CONNECTED.to_string()
+    );
+}
+
+#[tokio::test]
+async fn set_position_fail_set_fw_position() {
+    //given
+    let mut mock = MockFilterWheel::new();
+    mock.expect_set_fw_position()
+        .once()
+        .withf(|position| *position == 5)
+        .returning(|_| Err(eyre!(qhyccd_rs::QHYError::SetCfwPositionError)));
+    mock.expect_get_fw_position().returning(|| Ok(5));
+    let filter_wheel = new_filter_wheel(
+        mock,
+        MockFilterWheelType::WithFiltersAndTargetPosition {
+            times: 1,
+            filters: 6,
+            target: 0,
+        },
+    );
+    //when
+    let res = filter_wheel.set_position(5).await;
+    //then
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::UNSPECIFIED.to_string()
+    );
 }
