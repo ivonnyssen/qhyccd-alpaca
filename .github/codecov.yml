@@ -15,7 +15,7 @@ coverage:
 ignore:
   - "tests"
   - src/mocks.rs
-  - src/tests.rs
+  - src/test_*.rs
 
 # Make comments less noisy
 comment:
