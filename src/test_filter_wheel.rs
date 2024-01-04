@@ -23,6 +23,26 @@ enum MockFilterWheelType {
     },
 }
 
+macro_rules! not_connected {
+    ($name:ident$tail:tt) => {
+        let mock = MockFilterWheel::new();
+        let fw = new_filter_wheel(mock, MockFilterWheelType::IsOpenFalse { times: 1 });
+        let res = fw.$name$tail.await;
+        assert_eq!(
+            res.err().unwrap().to_string(),
+            ASCOMError::NOT_CONNECTED.to_string(),
+        );
+    };
+}
+
+#[tokio::test]
+async fn not_connected_asyncs() {
+    not_connected! {focus_offsets()}
+    not_connected! {names()}
+    not_connected! {position()}
+    not_connected! {set_position(0)}
+}
+
 fn new_filter_wheel(
     mut device: MockFilterWheel,
     variant: MockFilterWheelType,
@@ -133,7 +153,7 @@ async fn set_connected_success_not_connected() {
 }
 
 #[tokio::test]
-async fn set_connected_success_connected() {
+async fn set_connected_success_already_connected() {
     //given
     let mock = MockFilterWheel::new();
     let filter_wheel = new_filter_wheel(mock, MockFilterWheelType::IsOpenTrue { times: 1 });
@@ -144,13 +164,11 @@ async fn set_connected_success_connected() {
 }
 
 #[tokio::test]
-async fn set_connected_fail_is_open() {
+async fn set_connected_fail_open() {
     //given
     let mut mock = MockFilterWheel::new();
-    mock.expect_is_open()
-        .once()
-        .returning(|| Err(eyre!("error")));
-    let filter_wheel = new_filter_wheel(mock, MockFilterWheelType::Untouched);
+    mock.expect_open().once().returning(|| Err(eyre!("error")));
+    let filter_wheel = new_filter_wheel(mock, MockFilterWheelType::IsOpenFalse { times: 1 });
     //when
     let res = filter_wheel.set_connected(true).await;
     //then
