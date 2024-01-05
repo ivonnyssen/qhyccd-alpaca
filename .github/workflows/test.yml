@@ -57,7 +57,7 @@ jobs:
         run: |
           wget https://www.qhyccd.com/file/repository/publish/SDK/230906/sdk_Arm64_23.09.06.tgz
           tar xzvf sdk_Arm64_23.09.06.tgz
-          cd sdk_Arm_23.09.06/
+          cd sdk_Arm64_23.09.06/
           sudo sh install.sh
       - name: Install ${{ matrix.toolchain }}
         uses: dtolnay/rust-toolchain@master
