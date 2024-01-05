@@ -12,6 +12,7 @@ ASCOM Alpaca driver for QHYCCD cameras and filter wheels written in Rust.
 ### Tested Operating Systems
 
 - Debian 12 (Bookworm) amd64
+- Ubunutu 22.04.3 LTS arm64 (Raspberry Pi 4)
 
 ### Tested Cameras
 

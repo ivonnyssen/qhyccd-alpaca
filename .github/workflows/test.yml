@@ -11,7 +11,7 @@ concurrency:
 name: test
 jobs:
   required:
-    runs-on: ubuntu-latest
+    runs-on: [ubuntu-latest, self-hosted]
     name: ubuntu / ${{ matrix.toolchain }}
     strategy:
       matrix:
@@ -42,7 +42,7 @@ jobs:
       # - name: cargo test --doc
       #  run: cargo test --locked --all-features --doc
   minimal:
-    runs-on: ubuntu-latest
+    runs-on: [ubuntu-latest, self-hosted]
     name: ubuntu / stable / minimal-versions
     steps:
       - uses: actions/checkout@v4
