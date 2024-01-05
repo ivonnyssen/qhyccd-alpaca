@@ -52,24 +52,14 @@ enum State {
     },
 }
 
-#[derive(Debug, Clone, Copy)]
-struct BinningMode {
-    symmetric_value: i32,
-}
-impl BinningMode {
-    fn value(&self) -> i32 {
-        self.symmetric_value
-    }
-}
-
 #[derive(Debug)]
 struct QhyccdCamera {
     unique_id: String,
     name: String,
     description: String,
     device: QhyCamera,
-    binning: RwLock<BinningMode>,
-    valid_bins: RwLock<Option<Vec<BinningMode>>>,
+    binning: RwLock<u32>,
+    valid_bins: RwLock<Option<Vec<u32>>>,
     target_temperature: RwLock<Option<f64>>,
     ccd_info: RwLock<Option<CCDChipInfo>>,
     intended_roi: RwLock<Option<qhyccd_rs::CCDChipArea>>,
@@ -83,49 +73,49 @@ struct QhyccdCamera {
 }
 
 impl QhyccdCamera {
-    fn get_valid_binning_modes(&self) -> Vec<BinningMode> {
+    fn get_valid_binning_modes(&self) -> Vec<u32> {
         let mut valid_binning_modes = Vec::with_capacity(6);
         if self
             .device
             .is_control_available(qhyccd_rs::Control::CamBin1x1mode)
             .is_some()
         {
-            valid_binning_modes.push(BinningMode { symmetric_value: 1 });
+            valid_binning_modes.push(1_u32);
         }
         if self
             .device
             .is_control_available(qhyccd_rs::Control::CamBin2x2mode)
             .is_some()
         {
-            valid_binning_modes.push(BinningMode { symmetric_value: 2 });
+            valid_binning_modes.push(2_u32);
         }
         if self
             .device
             .is_control_available(qhyccd_rs::Control::CamBin3x3mode)
             .is_some()
         {
-            valid_binning_modes.push(BinningMode { symmetric_value: 3 });
+            valid_binning_modes.push(3_u32);
         }
         if self
             .device
             .is_control_available(qhyccd_rs::Control::CamBin4x4mode)
             .is_some()
         {
-            valid_binning_modes.push(BinningMode { symmetric_value: 4 });
+            valid_binning_modes.push(4_u32);
         }
         if self
             .device
             .is_control_available(qhyccd_rs::Control::CamBin6x6mode)
             .is_some()
         {
-            valid_binning_modes.push(BinningMode { symmetric_value: 6 });
+            valid_binning_modes.push(6_u32);
         }
         if self
             .device
             .is_control_available(qhyccd_rs::Control::CamBin8x8mode)
             .is_some()
         {
-            valid_binning_modes.push(BinningMode { symmetric_value: 8 });
+            valid_binning_modes.push(8_u32);
         }
         valid_binning_modes
     }
@@ -428,7 +418,7 @@ impl Camera for QhyccdCamera {
 
     async fn bin_x(&self) -> ASCOMResult<i32> {
         match self.connected().await {
-            Ok(true) => Ok(self.binning.read().await.value()),
+            Ok(true) => Ok(*self.binning.read().await as i32),
             _ => {
                 error!("camera not connected");
                 return Err(ASCOMError::NOT_CONNECTED);
@@ -439,7 +429,7 @@ impl Camera for QhyccdCamera {
     async fn set_bin_x(&self, bin_x: i32) -> ASCOMResult {
         match self.valid_bins.read().await.clone() {
             Some(valid_bins) => {
-                if !valid_bins.iter().any(|bin| bin.value() == bin_x) {
+                if !valid_bins.iter().any(|bin| *bin as i32 == bin_x) {
                     return Err(ASCOMError::invalid_value(
                         "bin value must be one of the valid bins",
                     ));
@@ -453,16 +443,14 @@ impl Camera for QhyccdCamera {
         match self.connected().await {
             Ok(true) => {
                 let mut lock = self.binning.write().await;
-                match lock.symmetric_value == bin_x {
+                match *lock as i32 == bin_x {
                     true => Ok(()),
                     false => {
                         match self.device.set_bin_mode(bin_x as u32, bin_x as u32) {
                             Ok(_) => {
                                 //adjust start and num values
-                                let old = lock.symmetric_value;
-                                *lock = BinningMode {
-                                    symmetric_value: bin_x,
-                                };
+                                let old = *lock;
+                                *lock = bin_x as u32;
                                 let mut roi_lock = self.intended_roi.write().await;
                                 *roi_lock = roi_lock.map(|roi| CCDChipArea {
                                     start_x: (roi.start_x as f32 * old as f32 / bin_x as f32)
@@ -502,7 +490,7 @@ impl Camera for QhyccdCamera {
             Ok(true) => match self
                 .get_valid_binning_modes()
                 .iter()
-                .map(|m| m.value())
+                .map(|m| *m as i32)
                 .max()
             {
                 Some(max) => Ok(max),
@@ -1770,7 +1758,7 @@ async fn main() -> eyre::Result<std::convert::Infallible> {
             name: c.id().to_owned(),
             description: "QHYCCD camera".to_owned(),
             device: c.clone(),
-            binning: RwLock::new(BinningMode { symmetric_value: 1 }),
+            binning: RwLock::new(1_u32),
             valid_bins: RwLock::new(None),
             target_temperature: RwLock::new(None),
             ccd_info: RwLock::new(None),

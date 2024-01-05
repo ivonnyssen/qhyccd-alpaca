@@ -107,30 +107,30 @@ enum MockCameraType {
         duration_us: f64,
     },
     WithBinning {
-        camera_binning: BinningMode,
+        camera_binning: u32,
     },
     WithBinningAndValidBins {
-        camera_valid_bins: Vec<BinningMode>,
-        camera_binning: BinningMode,
+        camera_valid_bins: Vec<u32>,
+        camera_binning: u32,
     },
     WithBinningAndRoiAndCCDInfo {
         times: usize,
         camera_roi: CCDChipArea,
         camera_ccd_info: CCDChipInfo,
-        camera_binning: BinningMode,
+        camera_binning: u32,
     },
     WithBinningAndValidBinsAndRoiAndCCDInfo {
         times: usize,
         camera_roi: CCDChipArea,
         camera_ccd_info: CCDChipInfo,
-        camera_binning: BinningMode,
-        camera_valid_bins: Vec<BinningMode>,
+        camera_binning: u32,
+        camera_valid_bins: Vec<u32>,
     },
     WithBinningAndRoiAndCCDInfoAndExposing {
         times: usize,
         camera_roi: CCDChipArea,
         camera_ccd_info: CCDChipInfo,
-        camera_binning: BinningMode,
+        camera_binning: u32,
         expected_duration: f64,
     },
     WithTargetTemperature {
@@ -150,8 +150,8 @@ enum MockCameraType {
 }
 
 fn new_camera(mut device: MockCamera, variant: MockCameraType) -> QhyccdCamera {
-    let mut valid_bins = RwLock::new(Some(vec![BinningMode { symmetric_value: 1 }]));
-    let mut binning = RwLock::new(BinningMode { symmetric_value: 1 });
+    let mut valid_bins = RwLock::new(Some(vec![1_u32]));
+    let mut binning = RwLock::new(1_u32);
     let mut target_temperature = RwLock::new(None);
     let mut ccd_info = RwLock::new(None);
     let mut intended_roi = RwLock::new(None);
@@ -318,7 +318,7 @@ async fn qhyccd_camera() {
         name: format!("QHYCCD-{}", mock.id()),
         description: "QHYCCD camera".to_owned(),
         device: mock.clone(),
-        binning: RwLock::new(BinningMode { symmetric_value: 1 }),
+        binning: RwLock::new(1_u32),
         valid_bins: RwLock::new(None),
         target_temperature: RwLock::new(None),
         ccd_info: RwLock::new(None),
@@ -335,7 +335,7 @@ async fn qhyccd_camera() {
     assert_eq!(camera.unique_id, "test_camera");
     assert_eq!(camera.name, "QHYCCD-test_camera");
     assert_eq!(camera.description, "QHYCCD camera");
-    assert_eq!(camera.binning.read().await.symmetric_value, 1);
+    assert_eq!(*camera.binning.read().await, 1);
     assert!(camera.valid_bins.read().await.is_none());
     assert!(camera.intended_roi.read().await.is_none());
     assert!(camera.last_exposure_start_time.read().await.is_none());
@@ -1276,7 +1276,7 @@ async fn set_bin_x_success_same_bin() {
     let camera = new_camera(
         mock,
         MockCameraType::WithBinning {
-            camera_binning: BinningMode { symmetric_value: 1 },
+            camera_binning: 1_u32,
         },
     );
     //when
@@ -1296,13 +1296,8 @@ async fn set_bin_x_success_different_bin_no_roi_yet() {
     let camera = new_camera(
         mock,
         MockCameraType::WithBinningAndValidBins {
-            camera_valid_bins: {
-                vec![
-                    BinningMode { symmetric_value: 1 },
-                    BinningMode { symmetric_value: 2 },
-                ]
-            },
-            camera_binning: BinningMode { symmetric_value: 2 },
+            camera_valid_bins: { vec![1_u32, 2_u32] },
+            camera_binning: 2_u32,
         },
     );
     //when
@@ -1338,13 +1333,8 @@ async fn set_bin_x_success_different_bin_with_roi_even() {
                 pixel_height: 2.9_f64,
                 bits_per_pixel: 16,
             },
-            camera_binning: BinningMode { symmetric_value: 1 },
-            camera_valid_bins: {
-                vec![
-                    BinningMode { symmetric_value: 1 },
-                    BinningMode { symmetric_value: 2 },
-                ]
-            },
+            camera_binning: 1_u32,
+            camera_valid_bins: { vec![1_u32, 2_u32] },
         },
     );
     //when
@@ -1388,13 +1378,8 @@ async fn set_bin_x_success_different_bin_with_roi_odd() {
                 pixel_height: 2.9_f64,
                 bits_per_pixel: 16,
             },
-            camera_binning: BinningMode { symmetric_value: 1 },
-            camera_valid_bins: {
-                vec![
-                    BinningMode { symmetric_value: 1 },
-                    BinningMode { symmetric_value: 2 },
-                ]
-            },
+            camera_binning: 1_u32,
+            camera_valid_bins: { vec![1_u32, 2_u32] },
         },
     );
     //when
@@ -1418,7 +1403,7 @@ async fn set_bin_y_success() {
     let camera = new_camera(
         mock,
         MockCameraType::WithBinning {
-            camera_binning: BinningMode { symmetric_value: 1 },
+            camera_binning: 1_u32,
         },
     );
     //when
@@ -1438,13 +1423,8 @@ async fn set_bin_x_fail_set_bin_mode() {
     let camera = new_camera(
         mock,
         MockCameraType::WithBinningAndValidBins {
-            camera_valid_bins: {
-                vec![
-                    BinningMode { symmetric_value: 1 },
-                    BinningMode { symmetric_value: 2 },
-                ]
-            },
-            camera_binning: BinningMode { symmetric_value: 1 },
+            camera_valid_bins: { vec![1_u32, 2_u32] },
+            camera_binning: 1_u32,
         },
     );
     //when
@@ -2806,7 +2786,7 @@ async fn start_exposure_fail_num_x_greater_than_camera_x_size() {
                 pixel_height: 2.9,
                 bits_per_pixel: 16,
             },
-            camera_binning: BinningMode { symmetric_value: 1 },
+            camera_binning: 1_u32,
         },
     );
     //when
@@ -2841,7 +2821,7 @@ async fn start_exposure_fail_num_y_greater_than_camera_y_size() {
                 pixel_height: 2.9,
                 bits_per_pixel: 16,
             },
-            camera_binning: BinningMode { symmetric_value: 1 },
+            camera_binning: 1_u32,
         },
     );
     //when
@@ -2887,7 +2867,7 @@ async fn start_exposure_fail_set_roi() {
                 pixel_height: 2.9,
                 bits_per_pixel: 16,
             },
-            camera_binning: BinningMode { symmetric_value: 1 },
+            camera_binning: 1_u32,
         },
     );
     //when
@@ -2933,7 +2913,7 @@ async fn start_exposure_fail_is_exposing_no_miri() {
                 pixel_height: 2.9_f64,
                 bits_per_pixel: 16,
             },
-            camera_binning: BinningMode { symmetric_value: 1 },
+            camera_binning: 1_u32,
             expected_duration: 1000_f64,
         },
     );
@@ -3009,7 +2989,7 @@ async fn start_exposure_success_1_channel_8_bpp_no_miri() {
                 pixel_height: 2.9_f64,
                 bits_per_pixel: 16,
             },
-            camera_binning: BinningMode { symmetric_value: 1 },
+            camera_binning: 1_u32,
         },
     );
     //when
@@ -3081,7 +3061,7 @@ async fn start_exposure_fail_1_channel_8_bpp_invalid_vector_no_miri() {
                 pixel_height: 2.9_f64,
                 bits_per_pixel: 16,
             },
-            camera_binning: BinningMode { symmetric_value: 1 },
+            camera_binning: 1_u32,
         },
     );
     //when
@@ -3156,7 +3136,7 @@ async fn start_exposure_success_1_channel_16_bpp_no_miri() {
                 pixel_height: 2.9_f64,
                 bits_per_pixel: 16,
             },
-            camera_binning: BinningMode { symmetric_value: 1 },
+            camera_binning: 1_u32,
         },
     );
     //when
@@ -3228,7 +3208,7 @@ async fn start_exposure_fail_1_channel_16_bpp_invalid_vector_no_miri() {
                 pixel_height: 2.9_f64,
                 bits_per_pixel: 16,
             },
-            camera_binning: BinningMode { symmetric_value: 1 },
+            camera_binning: 1_u32,
         },
     );
     //when
@@ -3303,7 +3283,7 @@ async fn start_exposure_fail_unsupported_channel_16_bpp_no_miri() {
                 pixel_height: 2.9_f64,
                 bits_per_pixel: 16,
             },
-            camera_binning: BinningMode { symmetric_value: 1 },
+            camera_binning: 1_u32,
         },
     );
     //when
@@ -3378,7 +3358,7 @@ async fn start_exposure_fail_1_channel_unsupported_bpp_no_miri() {
                 pixel_height: 2.9_f64,
                 bits_per_pixel: 16,
             },
-            camera_binning: BinningMode { symmetric_value: 1 },
+            camera_binning: 1_u32,
         },
     );
     //when
@@ -3434,7 +3414,7 @@ async fn start_exposure_fail_set_parameter_no_miri() {
                 pixel_height: 2.9_f64,
                 bits_per_pixel: 16,
             },
-            camera_binning: BinningMode { symmetric_value: 1 },
+            camera_binning: 1_u32,
         },
     );
     //when
@@ -3496,7 +3476,7 @@ async fn start_exposure_fail_start_single_frame_exposure_no_miri() {
                 pixel_height: 2.9_f64,
                 bits_per_pixel: 16,
             },
-            camera_binning: BinningMode { symmetric_value: 1 },
+            camera_binning: 1_u32,
         },
     );
     //when
@@ -3558,7 +3538,7 @@ async fn start_exposure_fail_get_image_size_no_miri() {
                 pixel_height: 2.9_f64,
                 bits_per_pixel: 16,
             },
-            camera_binning: BinningMode { symmetric_value: 1 },
+            camera_binning: 1_u32,
         },
     );
     //when
@@ -3629,7 +3609,7 @@ async fn start_exposure_fail_get_single_frame_no_miri() {
                 pixel_height: 2.9_f64,
                 bits_per_pixel: 16,
             },
-            camera_binning: BinningMode { symmetric_value: 1 },
+            camera_binning: 1_u32,
         },
     );
     //when
