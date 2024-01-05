@@ -437,8 +437,18 @@ impl Camera for QhyccdCamera {
     }
 
     async fn set_bin_x(&self, bin_x: i32) -> ASCOMResult {
-        if bin_x < 1 {
-            return Err(ASCOMError::invalid_value("bin value must be >= 1"));
+        match self.valid_bins.read().await.clone() {
+            Some(valid_bins) => {
+                if !valid_bins.iter().any(|bin| bin.value() == bin_x) {
+                    return Err(ASCOMError::invalid_value(
+                        "bin value must be one of the valid bins",
+                    ));
+                }
+            }
+            None => {
+                error!("valid_bins not set");
+                return Err(ASCOMError::NOT_CONNECTED);
+            }
         }
         match self.connected().await {
             Ok(true) => {
@@ -903,6 +913,7 @@ impl Camera for QhyccdCamera {
     }
 
     async fn set_readout_mode(&self, readout_mode: i32) -> ASCOMResult {
+        //TODO: need to check that readout_mode is valid
         let readout_mode = readout_mode as u32;
         match self.connected().await {
             Ok(true) => match self.device.set_readout_mode(readout_mode) {

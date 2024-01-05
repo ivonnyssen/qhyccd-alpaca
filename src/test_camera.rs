@@ -109,11 +109,22 @@ enum MockCameraType {
     WithBinning {
         camera_binning: BinningMode,
     },
+    WithBinningAndValidBins {
+        camera_valid_bins: Vec<BinningMode>,
+        camera_binning: BinningMode,
+    },
     WithBinningAndRoiAndCCDInfo {
         times: usize,
         camera_roi: CCDChipArea,
         camera_ccd_info: CCDChipInfo,
         camera_binning: BinningMode,
+    },
+    WithBinningAndValidBinsAndRoiAndCCDInfo {
+        times: usize,
+        camera_roi: CCDChipArea,
+        camera_ccd_info: CCDChipInfo,
+        camera_binning: BinningMode,
+        camera_valid_bins: Vec<BinningMode>,
     },
     WithBinningAndRoiAndCCDInfoAndExposing {
         times: usize,
@@ -139,6 +150,7 @@ enum MockCameraType {
 }
 
 fn new_camera(mut device: MockCamera, variant: MockCameraType) -> QhyccdCamera {
+    let mut valid_bins = RwLock::new(Some(vec![BinningMode { symmetric_value: 1 }]));
     let mut binning = RwLock::new(BinningMode { symmetric_value: 1 });
     let mut target_temperature = RwLock::new(None);
     let mut ccd_info = RwLock::new(None);
@@ -198,6 +210,15 @@ fn new_camera(mut device: MockCamera, variant: MockCameraType) -> QhyccdCamera {
         }
         MockCameraType::WithBinning { camera_binning } => {
             device.expect_is_open().times(1).returning(|| Ok(true));
+            valid_bins = RwLock::new(Some(vec![camera_binning]));
+            binning = RwLock::new(camera_binning);
+        }
+        MockCameraType::WithBinningAndValidBins {
+            camera_valid_bins,
+            camera_binning,
+        } => {
+            device.expect_is_open().times(1).returning(|| Ok(true));
+            valid_bins = RwLock::new(Some(camera_valid_bins));
             binning = RwLock::new(camera_binning);
         }
         MockCameraType::WithBinningAndRoiAndCCDInfo {
@@ -209,6 +230,19 @@ fn new_camera(mut device: MockCamera, variant: MockCameraType) -> QhyccdCamera {
             device.expect_is_open().times(times).returning(|| Ok(true));
             ccd_info = RwLock::new(Some(camera_ccd_info));
             intended_roi = RwLock::new(Some(camera_roi));
+            binning = RwLock::new(camera_binning);
+        }
+        MockCameraType::WithBinningAndValidBinsAndRoiAndCCDInfo {
+            times,
+            camera_roi,
+            camera_ccd_info,
+            camera_binning,
+            camera_valid_bins,
+        } => {
+            device.expect_is_open().times(times).returning(|| Ok(true));
+            ccd_info = RwLock::new(Some(camera_ccd_info));
+            intended_roi = RwLock::new(Some(camera_roi));
+            valid_bins = RwLock::new(Some(camera_valid_bins));
             binning = RwLock::new(camera_binning);
         }
         MockCameraType::WithBinningAndRoiAndCCDInfoAndExposing {
@@ -256,7 +290,7 @@ fn new_camera(mut device: MockCamera, variant: MockCameraType) -> QhyccdCamera {
         description: "QHYCCD camera".to_owned(),
         device,
         binning,
-        valid_bins: RwLock::new(None),
+        valid_bins,
         target_temperature,
         ccd_info,
         intended_roi,
@@ -1261,7 +1295,13 @@ async fn set_bin_x_success_different_bin_no_roi_yet() {
         .returning(|_, _| Ok(()));
     let camera = new_camera(
         mock,
-        MockCameraType::WithBinning {
+        MockCameraType::WithBinningAndValidBins {
+            camera_valid_bins: {
+                vec![
+                    BinningMode { symmetric_value: 1 },
+                    BinningMode { symmetric_value: 2 },
+                ]
+            },
             camera_binning: BinningMode { symmetric_value: 2 },
         },
     );
@@ -1281,7 +1321,7 @@ async fn set_bin_x_success_different_bin_with_roi_even() {
         .returning(|_, _| Ok(()));
     let camera = new_camera(
         mock,
-        MockCameraType::WithBinningAndRoiAndCCDInfo {
+        MockCameraType::WithBinningAndValidBinsAndRoiAndCCDInfo {
             times: 9,
             camera_roi: CCDChipArea {
                 start_x: 10,
@@ -1299,6 +1339,12 @@ async fn set_bin_x_success_different_bin_with_roi_even() {
                 bits_per_pixel: 16,
             },
             camera_binning: BinningMode { symmetric_value: 1 },
+            camera_valid_bins: {
+                vec![
+                    BinningMode { symmetric_value: 1 },
+                    BinningMode { symmetric_value: 2 },
+                ]
+            },
         },
     );
     //when
@@ -1325,7 +1371,7 @@ async fn set_bin_x_success_different_bin_with_roi_odd() {
         .returning(|_, _| Ok(()));
     let camera = new_camera(
         mock,
-        MockCameraType::WithBinningAndRoiAndCCDInfo {
+        MockCameraType::WithBinningAndValidBinsAndRoiAndCCDInfo {
             times: 9,
             camera_roi: CCDChipArea {
                 start_x: 5,
@@ -1343,6 +1389,12 @@ async fn set_bin_x_success_different_bin_with_roi_odd() {
                 bits_per_pixel: 16,
             },
             camera_binning: BinningMode { symmetric_value: 1 },
+            camera_valid_bins: {
+                vec![
+                    BinningMode { symmetric_value: 1 },
+                    BinningMode { symmetric_value: 2 },
+                ]
+            },
         },
     );
     //when
@@ -1383,7 +1435,18 @@ async fn set_bin_x_fail_set_bin_mode() {
         .times(1)
         .withf(|bin_x: &u32, bin_y: &u32| *bin_x == 2 && *bin_y == 2)
         .returning(|_, _| Err(eyre!("Could not set bin mode")));
-    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
+    let camera = new_camera(
+        mock,
+        MockCameraType::WithBinningAndValidBins {
+            camera_valid_bins: {
+                vec![
+                    BinningMode { symmetric_value: 1 },
+                    BinningMode { symmetric_value: 2 },
+                ]
+            },
+            camera_binning: BinningMode { symmetric_value: 1 },
+        },
+    );
     //when
     let res = camera.set_bin_x(2).await;
     //then
@@ -1405,7 +1468,7 @@ async fn set_bin_x_fail_invalid_bin() {
     assert!(res.is_err());
     assert_eq!(
         res.err().unwrap().to_string(),
-        ASCOMError::invalid_value("bin value must be >= 1").to_string()
+        ASCOMError::invalid_value("bin value must be one of the valid bins").to_string()
     );
 }
 
