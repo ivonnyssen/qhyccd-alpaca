@@ -2535,6 +2535,40 @@ async fn set_readout_mode_success() {
 }
 
 #[tokio::test]
+async fn set_readout_mode_fail_invalid_readout_mode() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_get_number_of_readout_modes()
+        .once()
+        .returning(|| Ok(4_u32));
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
+    //when
+    let res = camera.set_readout_mode(5_i32).await;
+    //then
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::INVALID_VALUE.to_string(),
+    )
+}
+
+#[tokio::test]
+async fn set_readout_mode_fail_get_number_of_readout_modes() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_get_number_of_readout_modes()
+        .once()
+        .returning(|| Err(eyre!(qhyccd_rs::QHYError::GetNumberOfReadoutModesError)));
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
+    //when
+    let res = camera.set_readout_mode(5_i32).await;
+    //then
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::INVALID_VALUE.to_string(),
+    )
+}
+
+#[tokio::test]
 async fn set_readout_mode_fail_set_readout_mode() {
     //given
     let mut mock = MockCamera::new();
