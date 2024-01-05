@@ -427,21 +427,21 @@ impl Camera for QhyccdCamera {
     }
 
     async fn set_bin_x(&self, bin_x: i32) -> ASCOMResult {
-        match self.valid_bins.read().await.clone() {
-            Some(valid_bins) => {
-                if !valid_bins.iter().any(|bin| *bin as i32 == bin_x) {
-                    return Err(ASCOMError::invalid_value(
-                        "bin value must be one of the valid bins",
-                    ));
-                }
-            }
-            None => {
-                error!("valid_bins not set");
-                return Err(ASCOMError::NOT_CONNECTED);
-            }
-        }
         match self.connected().await {
             Ok(true) => {
+                match self.valid_bins.read().await.clone() {
+                    Some(valid_bins) => {
+                        if !valid_bins.iter().any(|bin| *bin as i32 == bin_x) {
+                            return Err(ASCOMError::invalid_value(
+                                "bin value must be one of the valid bins",
+                            ));
+                        }
+                    }
+                    None => {
+                        error!("valid_bins not set");
+                        return Err(ASCOMError::NOT_CONNECTED);
+                    }
+                }
                 let mut lock = self.binning.write().await;
                 match *lock as i32 == bin_x {
                     true => Ok(()),

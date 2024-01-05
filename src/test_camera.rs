@@ -150,8 +150,8 @@ enum MockCameraType {
 }
 
 fn new_camera(mut device: MockCamera, variant: MockCameraType) -> QhyccdCamera {
-    let mut valid_bins = RwLock::new(Some(vec![1_u32]));
-    let mut binning = RwLock::new(1_u32);
+    let mut valid_bins = RwLock::new(None);
+    let mut binning = RwLock::new(0);
     let mut target_temperature = RwLock::new(None);
     let mut ccd_info = RwLock::new(None);
     let mut intended_roi = RwLock::new(None);
@@ -217,7 +217,7 @@ fn new_camera(mut device: MockCamera, variant: MockCameraType) -> QhyccdCamera {
             camera_valid_bins,
             camera_binning,
         } => {
-            device.expect_is_open().times(1).returning(|| Ok(true));
+            device.expect_is_open().once().returning(|| Ok(true));
             valid_bins = RwLock::new(Some(camera_valid_bins));
             binning = RwLock::new(camera_binning);
         }
@@ -1249,7 +1249,13 @@ async fn sensor_name_success() {
 async fn bin_x_success() {
     //given
     let mock = MockCamera::new();
-    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
+    let camera = new_camera(
+        mock,
+        MockCameraType::WithBinningAndValidBins {
+            camera_valid_bins: { vec![1_u32, 2_u32] },
+            camera_binning: 1_u32,
+        },
+    );
     //when
     let res = camera.bin_x().await;
     //then
@@ -1261,7 +1267,13 @@ async fn bin_x_success() {
 async fn bin_y_success() {
     //given
     let mock = MockCamera::new();
-    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
+    let camera = new_camera(
+        mock,
+        MockCameraType::WithBinningAndValidBins {
+            camera_valid_bins: { vec![1_u32, 2_u32] },
+            camera_binning: 1_u32,
+        },
+    );
     //when
     let res = camera.bin_y().await;
     //then
@@ -1275,7 +1287,8 @@ async fn set_bin_x_success_same_bin() {
     let mock = MockCamera::new();
     let camera = new_camera(
         mock,
-        MockCameraType::WithBinning {
+        MockCameraType::WithBinningAndValidBins {
+            camera_valid_bins: { vec![1_u32, 2_u32] },
             camera_binning: 1_u32,
         },
     );
@@ -1413,6 +1426,31 @@ async fn set_bin_y_success() {
 }
 
 #[tokio::test]
+async fn set_bin_x_fail_no_valid_bins() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_set_bin_mode()
+        .times(1)
+        .withf(|bin_x: &u32, bin_y: &u32| *bin_x == 2 && *bin_y == 2)
+        .returning(|_, _| Err(eyre!("Could not set bin mode")));
+    let camera = new_camera(
+        mock,
+        MockCameraType::WithBinningAndValidBins {
+            camera_valid_bins: { vec![1_u32, 2_u32] },
+            camera_binning: 1_u32,
+        },
+    );
+    //when
+    let res = camera.set_bin_x(2).await;
+    //then
+    assert!(res.is_err());
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::VALUE_NOT_SET.to_string()
+    );
+}
+
+#[tokio::test]
 async fn set_bin_x_fail_set_bin_mode() {
     //given
     let mut mock = MockCamera::new();
@@ -1441,7 +1479,13 @@ async fn set_bin_x_fail_set_bin_mode() {
 async fn set_bin_x_fail_invalid_bin() {
     //given
     let mock = MockCamera::new();
-    let camera = new_camera(mock, MockCameraType::Untouched);
+    let camera = new_camera(
+        mock,
+        MockCameraType::WithBinningAndValidBins {
+            camera_valid_bins: { vec![1_u32, 2_u32] },
+            camera_binning: 1_u32,
+        },
+    );
     //when
     let res = camera.set_bin_x(0).await;
     //then
