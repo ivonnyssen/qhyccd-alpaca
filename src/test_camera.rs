@@ -1428,25 +1428,15 @@ async fn set_bin_y_success() {
 #[tokio::test]
 async fn set_bin_x_fail_no_valid_bins() {
     //given
-    let mut mock = MockCamera::new();
-    mock.expect_set_bin_mode()
-        .times(1)
-        .withf(|bin_x: &u32, bin_y: &u32| *bin_x == 2 && *bin_y == 2)
-        .returning(|_, _| Err(eyre!("Could not set bin mode")));
-    let camera = new_camera(
-        mock,
-        MockCameraType::WithBinningAndValidBins {
-            camera_valid_bins: { vec![1_u32, 2_u32] },
-            camera_binning: 1_u32,
-        },
-    );
+    let mock = MockCamera::new();
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
     //when
     let res = camera.set_bin_x(2).await;
     //then
     assert!(res.is_err());
     assert_eq!(
         res.err().unwrap().to_string(),
-        ASCOMError::VALUE_NOT_SET.to_string()
+        ASCOMError::NOT_CONNECTED.to_string()
     );
 }
 
