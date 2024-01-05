@@ -2476,6 +2476,9 @@ async fn readout_mode_fail_get_readout_mode() {
 async fn set_readout_mode_success() {
     //given
     let mut mock = MockCamera::new();
+    mock.expect_get_number_of_readout_modes()
+        .once()
+        .returning(|| Ok(4_u32));
     mock.expect_set_readout_mode()
         .once()
         .withf(|readout_mode| *readout_mode == 3)
@@ -2491,6 +2494,9 @@ async fn set_readout_mode_success() {
 async fn set_readout_mode_fail_set_readout_mode() {
     //given
     let mut mock = MockCamera::new();
+    mock.expect_get_number_of_readout_modes()
+        .once()
+        .returning(|| Ok(4_u32));
     mock.expect_set_readout_mode()
         .once()
         .withf(|readout_mode| *readout_mode == 3)

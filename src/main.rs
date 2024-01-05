@@ -904,13 +904,26 @@ impl Camera for QhyccdCamera {
         //TODO: need to check that readout_mode is valid
         let readout_mode = readout_mode as u32;
         match self.connected().await {
-            Ok(true) => match self.device.set_readout_mode(readout_mode) {
-                Ok(_) => Ok(()),
-                Err(e) => {
-                    error!(?e, "set_readout_mode failed");
-                    Err(ASCOMError::VALUE_NOT_SET)
+            Ok(true) => {
+                match self.device.get_number_of_readout_modes() {
+                    Ok(number) => 
+                        if !(0..number).contains(&readout_mode) {
+                            error!("readout_mode {} is greater than number of readout modes {}", readout_mode, number);
+                            return Err(ASCOMError::INVALID_VALUE);
+                        },
+                    Err(e) => {
+                        error!("could not get number of readout modes, error code: {}", e);
+                        return Err(ASCOMError::INVALID_VALUE);
+                    }
+                };
+                match self.device.set_readout_mode(readout_mode) {
+                    Ok(_) => Ok(()),
+                    Err(e) => {
+                        error!(?e, "set_readout_mode failed");
+                        Err(ASCOMError::VALUE_NOT_SET)
+                    }
                 }
-            },
+            }
             _ => return Err(ASCOMError::NOT_CONNECTED),
         }
     }
