@@ -52,7 +52,7 @@ jobs:
         with:
           submodules: true
       - name: Install libusb
-        run: sudo apt-get install libusb-1.0-0-dev
+        run: sudo apt-get install libusb-1.0-0-dev -y
       - name: Install qhyccd sdk
         run: |
           wget https://www.qhyccd.com/file/repository/publish/SDK/230906/sdk_Arm64_23.09.06.tgz
