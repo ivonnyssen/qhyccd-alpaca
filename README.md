@@ -36,11 +36,6 @@ ASCOM Alpaca driver for QHYCCD cameras and filter wheels written in Rust.
 - NINA
 - SGP
 
-```toml
-[dependencies]
-qhyccd-alpaca-rs = "0.1.0"
-```
-
 ## Installation
 
 ### Prerequisites
