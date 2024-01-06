@@ -252,7 +252,7 @@ impl Device for QhyccdCamera {
                     })?;
                     match self
                         .device
-                        .set_if_available(qhyccd_rs::Control::TransferBit, 16.0)
+                        .set_if_available(qhyccd_rs::Control::TransferBit, 16_f64)
                     {
                         Ok(_) => trace!(cam_transfer_bit = 16.0),
                         Err(_) => {
