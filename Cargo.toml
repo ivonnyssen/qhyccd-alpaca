@@ -37,6 +37,7 @@ educe = "0.5.9"
 
 # to make ascom-alpaca happy
 mediatype = "0.19.16"
+clap = { version = "4.4.13", features = ["derive"] }
 
 [dev-dependencies]
 mockall = { version = "0.12.1", features = [] }

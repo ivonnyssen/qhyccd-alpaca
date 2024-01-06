@@ -1749,18 +1749,68 @@ impl FilterWheel for QhyccdFilterWheel {
     }
 }
 
+use clap::Parser;
+
+/// ASCOM Alpaca server for QHYCCD cameras and filter wheels
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about=None)]
+struct Args {
+    /// Port to listen on
+    #[arg(short, long, default_value = "8000")]
+    port: u16,
+
+    /// valid values: trace, debug, info, warn, error
+    #[arg(short, long, default_value = "info")]
+    log_level: Option<String>,
+}
+
 #[tokio::main]
 async fn main() -> eyre::Result<std::convert::Infallible> {
-    tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::TRACE)
-        .init();
+    let args = Args::parse();
+    let log_level = args
+        .log_level
+        .unwrap_or_else(|| std::env::var("RUST_LOG").unwrap_or_else(|_| "info".to_owned()));
+    let port = args.port;
+
+    match log_level.as_str() {
+        "trace" => tracing::subscriber::set_global_default(
+            tracing_subscriber::fmt()
+                .with_max_level(tracing::Level::TRACE)
+                .finish(),
+        )?,
+        "debug" => tracing::subscriber::set_global_default(
+            tracing_subscriber::fmt()
+                .with_max_level(tracing::Level::DEBUG)
+                .finish(),
+        )?,
+        "info" => tracing::subscriber::set_global_default(
+            tracing_subscriber::fmt()
+                .with_max_level(tracing::Level::INFO)
+                .finish(),
+        )?,
+        "warn" => tracing::subscriber::set_global_default(
+            tracing_subscriber::fmt()
+                .with_max_level(tracing::Level::WARN)
+                .finish(),
+        )?,
+        "error" => tracing::subscriber::set_global_default(
+            tracing_subscriber::fmt()
+                .with_max_level(tracing::Level::ERROR)
+                .finish(),
+        )?,
+        _ => {
+            eprintln!("Invalid log level: {}", log_level);
+            std::process::exit(1);
+        }
+    }
+    //tracing_subscriber::fmt().init();
 
     let mut server = Server {
         info: CargoServerInfo!(),
         ..Default::default()
     };
 
-    server.listen_addr.set_port(8000);
+    server.listen_addr.set_port(port);
 
     let sdk = Sdk::new().expect("SDK::new failed");
     let sdk_version = sdk.version().expect("get_sdk_version failed");

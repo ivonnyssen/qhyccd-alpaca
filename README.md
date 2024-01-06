@@ -77,8 +77,7 @@ cargo build --release
 
 ```bash
 cd target/release
-./qhyccd-alpaca-rs --log-level [debug | trace | info | warn | error] \
---port 8000
+./qhyccd-alpaca-rs [--help for more info]
 ```
 
 ## Rust version requirements
