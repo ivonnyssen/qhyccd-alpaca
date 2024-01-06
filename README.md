@@ -90,6 +90,7 @@ qhyccd-alpaca-rs works with stable Rust. The minimum required Rust version is 1.
 - The driver reports all readout modes, but if setting a readout mode uses a different
   resolution that the full camera resolution, that is not yet recognized by the driver.
 - USB transport speed and mode are not implemented, it will use the camera defaults.
+- if you find anything else missing or wrong, please open an [issue](https://github.com/ivonnyssen/qhyccd-alpaca-rs/issues/new).
 
 ## License
 
