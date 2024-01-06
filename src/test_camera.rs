@@ -476,6 +476,10 @@ async fn set_connected_true_success() {
     //given
     let mut mock = MockCamera::new();
     mock.expect_open().times(1).returning(|| Ok(()));
+    mock.expect_is_control_available()
+        .once()
+        .withf(|control| *control == qhyccd_rs::Control::CamSingleFrameMode)
+        .returning(|_| Some(0_u32));
     mock.expect_set_stream_mode()
         .once()
         .withf(|mode| *mode == qhyccd_rs::StreamMode::SingleFrameMode)

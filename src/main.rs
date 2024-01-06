@@ -231,6 +231,12 @@ impl Device for QhyccdCamera {
                         ASCOMError::NOT_CONNECTED
                     })?;
                     self.device
+                        .is_control_available(qhyccd_rs::Control::CamSingleFrameMode)
+                        .ok_or_else(|| {
+                            error!("CameraFeature::CamLiveVideoMode is not supported");
+                            ASCOMError::NOT_CONNECTED
+                        })?;
+                    self.device
                         .set_stream_mode(qhyccd_rs::StreamMode::SingleFrameMode)
                         .map_err(|e| {
                             error!(?e, "setting StreamMode to SingleFrameMode failed");
@@ -244,6 +250,16 @@ impl Device for QhyccdCamera {
                         error!(?e, "camera init failed");
                         ASCOMError::NOT_CONNECTED
                     })?;
+                    match self
+                        .device
+                        .set_if_available(qhyccd_rs::Control::TransferBit, 16.0)
+                    {
+                        Ok(_) => trace!(cam_transfer_bit = 16.0),
+                        Err(_) => {
+                            error!("setting transfer bits is not supported");
+                            return Err(ASCOMError::NOT_CONNECTED);
+                        }
+                    };
                     let mut lock = self.ccd_info.write().await;
                     let info = self.device.get_ccd_info().map_err(|e| {
                         error!(?e, "get_ccd_info failed");
