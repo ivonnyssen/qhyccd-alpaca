@@ -65,9 +65,32 @@ cd sdk_Arm64_23.09.06/
 sudo sh install.sh
 ```
 
+##### Clone the repository
+
+```bash
+git clone https://github.com/ivonnyssen/qhyccd-alpaca-rs.git
+cd qhyccd-alpaca-rs
+cargo build --release
+```
+
+##### Run the driver
+
+```bash
+cd target/release
+./qhyccd-alpaca-rs --log-level [debug | trace | info | warn | error] \
+--port 8000
+```
+
 ## Rust version requirements
 
 qhyccd-alpaca-rs works with stable Rust. The minimum required Rust version is 1.70.0.
+
+## Missing features
+
+- LiveMode is not implemented
+- The driver reports all readout modes, but if setting a readout mode uses a different
+  resolution that the full camera resolution, that is not yet recognized by the driver.
+- USB transport speed and mode are not implemented, it will use the camera defaults.
 
 ## License
 
