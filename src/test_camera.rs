@@ -480,6 +480,10 @@ async fn set_connected_true_success() {
         .once()
         .withf(|control| *control == qhyccd_rs::Control::CamSingleFrameMode)
         .returning(|_| Some(0_u32));
+    mock.expect_set_if_available()
+        .once()
+        .withf(|control, bits| *control == qhyccd_rs::Control::TransferBit && *bits == 16_f64)
+        .returning(|_, _| Ok(()));
     mock.expect_set_stream_mode()
         .once()
         .withf(|mode| *mode == qhyccd_rs::StreamMode::SingleFrameMode)
@@ -558,6 +562,14 @@ async fn set_connected_true_success_no_gain_no_offset() {
     //given
     let mut mock = MockCamera::new();
     mock.expect_open().times(1).returning(|| Ok(()));
+    mock.expect_is_control_available()
+        .once()
+        .withf(|control| *control == qhyccd_rs::Control::CamSingleFrameMode)
+        .returning(|_| Some(0_u32));
+    mock.expect_set_if_available()
+        .once()
+        .withf(|control, bits| *control == qhyccd_rs::Control::TransferBit && *bits == 16_f64)
+        .returning(|_, _| Ok(()));
     mock.expect_set_stream_mode()
         .once()
         .withf(|mode| *mode == qhyccd_rs::StreamMode::SingleFrameMode)
@@ -657,6 +669,10 @@ async fn set_connected_fail_set_stream_mode() {
     //given
     let mut mock = MockCamera::new();
     mock.expect_open().once().returning(|| Ok(()));
+    mock.expect_is_control_available()
+        .once()
+        .withf(|control| *control == qhyccd_rs::Control::CamSingleFrameMode)
+        .returning(|_| Some(0_u32));
     mock.expect_set_stream_mode()
         .once()
         .withf(|mode| *mode == qhyccd_rs::StreamMode::SingleFrameMode)
@@ -677,6 +693,10 @@ async fn set_connected_fail_set_readout_mode() {
     //given
     let mut mock = MockCamera::new();
     mock.expect_open().once().returning(|| Ok(()));
+    mock.expect_is_control_available()
+        .once()
+        .withf(|control| *control == qhyccd_rs::Control::CamSingleFrameMode)
+        .returning(|_| Some(0_u32));
     mock.expect_set_stream_mode()
         .once()
         .withf(|mode| *mode == qhyccd_rs::StreamMode::SingleFrameMode)
@@ -701,6 +721,10 @@ async fn set_connected_fail_init() {
     //given
     let mut mock = MockCamera::new();
     mock.expect_open().once().returning(|| Ok(()));
+    mock.expect_is_control_available()
+        .once()
+        .withf(|control| *control == qhyccd_rs::Control::CamSingleFrameMode)
+        .returning(|_| Some(0_u32));
     mock.expect_set_stream_mode()
         .once()
         .withf(|mode| *mode == qhyccd_rs::StreamMode::SingleFrameMode)
@@ -732,6 +756,14 @@ async fn set_connected_fail_get_ccd_info() {
         .once()
         .withf(|mode| *mode == qhyccd_rs::StreamMode::SingleFrameMode)
         .returning(|_| Ok(()));
+    mock.expect_is_control_available()
+        .once()
+        .withf(|control| *control == qhyccd_rs::Control::CamSingleFrameMode)
+        .returning(|_| Some(0_u32));
+    mock.expect_set_if_available()
+        .once()
+        .withf(|control, bits| *control == qhyccd_rs::Control::TransferBit && *bits == 16_f64)
+        .returning(|_, _| Ok(()));
     mock.expect_set_readout_mode()
         .once()
         .withf(|mode| *mode == 0)
@@ -760,6 +792,14 @@ async fn set_connected_fail_get_effective_area() {
         .once()
         .withf(|mode| *mode == qhyccd_rs::StreamMode::SingleFrameMode)
         .returning(|_| Ok(()));
+    mock.expect_is_control_available()
+        .once()
+        .withf(|control| *control == qhyccd_rs::Control::CamSingleFrameMode)
+        .returning(|_| Some(0_u32));
+    mock.expect_set_if_available()
+        .once()
+        .withf(|control, bits| *control == qhyccd_rs::Control::TransferBit && *bits == 16_f64)
+        .returning(|_, _| Ok(()));
     mock.expect_set_readout_mode()
         .once()
         .withf(|mode| *mode == 0)
@@ -799,6 +839,14 @@ async fn set_connected_fail_get_parameter_min_max_step_exposure() {
         .once()
         .withf(|mode| *mode == qhyccd_rs::StreamMode::SingleFrameMode)
         .returning(|_| Ok(()));
+    mock.expect_is_control_available()
+        .once()
+        .withf(|control| *control == qhyccd_rs::Control::CamSingleFrameMode)
+        .returning(|_| Some(0_u32));
+    mock.expect_set_if_available()
+        .once()
+        .withf(|control, bits| *control == qhyccd_rs::Control::TransferBit && *bits == 16_f64)
+        .returning(|_, _| Ok(()));
     mock.expect_set_readout_mode()
         .once()
         .withf(|mode| *mode == 0)
@@ -865,6 +913,14 @@ async fn set_connected_fail_get_parameter_min_max_step_gain() {
     //given
     let mut mock = MockCamera::new();
     mock.expect_open().times(1).returning(|| Ok(()));
+    mock.expect_is_control_available()
+        .once()
+        .withf(|control| *control == qhyccd_rs::Control::CamSingleFrameMode)
+        .returning(|_| Some(0_u32));
+    mock.expect_set_if_available()
+        .once()
+        .withf(|control, bits| *control == qhyccd_rs::Control::TransferBit && *bits == 16_f64)
+        .returning(|_, _| Ok(()));
     mock.expect_set_stream_mode()
         .once()
         .withf(|mode| *mode == qhyccd_rs::StreamMode::SingleFrameMode)
@@ -943,6 +999,14 @@ async fn set_connected_fail_get_parameter_min_max_step_offset() {
     //given
     let mut mock = MockCamera::new();
     mock.expect_open().times(1).returning(|| Ok(()));
+    mock.expect_is_control_available()
+        .once()
+        .withf(|control| *control == qhyccd_rs::Control::CamSingleFrameMode)
+        .returning(|_| Some(0_u32));
+    mock.expect_set_if_available()
+        .once()
+        .withf(|control, bits| *control == qhyccd_rs::Control::TransferBit && *bits == 16_f64)
+        .returning(|_, _| Ok(()));
     mock.expect_set_stream_mode()
         .once()
         .withf(|mode| *mode == qhyccd_rs::StreamMode::SingleFrameMode)
