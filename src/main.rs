@@ -355,61 +355,61 @@ macro_rules! ensure_connected {
 impl Camera for QhyccdCamera {
     async fn bayer_offset_x(&self) -> ASCOMResult<i32> {
         ensure_connected!(self);
-        match self
+        if self
             .device
             .is_control_available(qhyccd_rs::Control::CamIsColor)
+            .is_none()
         {
-            Some(_) => match self
-                .device
-                .is_control_available(qhyccd_rs::Control::CamColor)
-            {
-                // https://www.cloudynights.com/topic/883660-software-relating-to-bayer-patterns/
-                Some(bayer_id) => match bayer_id.try_into() {
-                    Ok(qhyccd_rs::BayerMode::GBRG) => Ok(0),
-                    Ok(qhyccd_rs::BayerMode::GRBG) => Ok(1),
-                    Ok(qhyccd_rs::BayerMode::BGGR) => Ok(1),
-                    Ok(qhyccd_rs::BayerMode::RGGB) => Ok(0),
-                    Err(e) => {
-                        error!(?e, "invalid bayer_id from camera");
-                        Err(ASCOMError::INVALID_VALUE)
-                    }
-                },
-                None => {
-                    error!("invalid bayer_id from camera");
-                    Err(ASCOMError::INVALID_VALUE)
-                }
-            },
-            None => Err(ASCOMError::NOT_IMPLEMENTED),
+            error!("CamIsColor not available");
+            return Err(ASCOMError::NOT_IMPLEMENTED);
+        };
+        let Some(bayer_id) = self
+            .device
+            .is_control_available(qhyccd_rs::Control::CamColor)
+        else {
+            error!("invalid bayer_id from camera");
+            return Err(ASCOMError::INVALID_VALUE);
+        };
+        // https://www.cloudynights.com/topic/883660-software-relating-to-bayer-patterns/
+        match bayer_id.try_into() {
+            Ok(qhyccd_rs::BayerMode::GBRG) => Ok(0),
+            Ok(qhyccd_rs::BayerMode::GRBG) => Ok(1),
+            Ok(qhyccd_rs::BayerMode::BGGR) => Ok(1),
+            Ok(qhyccd_rs::BayerMode::RGGB) => Ok(0),
+            Err(e) => {
+                error!(?e, "invalid bayer_id from camera");
+                Err(ASCOMError::INVALID_VALUE)
+            }
         }
     }
 
     async fn bayer_offset_y(&self) -> ASCOMResult<i32> {
         ensure_connected!(self);
-        match self
+        if self
             .device
             .is_control_available(qhyccd_rs::Control::CamIsColor)
+            .is_none()
         {
-            Some(_) => match self
-                .device
-                .is_control_available(qhyccd_rs::Control::CamColor)
-            {
-                // https://www.cloudynights.com/topic/883660-software-relating-to-bayer-patterns/
-                Some(bayer_id) => match bayer_id.try_into() {
-                    Ok(qhyccd_rs::BayerMode::GBRG) => Ok(1),
-                    Ok(qhyccd_rs::BayerMode::GRBG) => Ok(0),
-                    Ok(qhyccd_rs::BayerMode::BGGR) => Ok(1),
-                    Ok(qhyccd_rs::BayerMode::RGGB) => Ok(0),
-                    Err(e) => {
-                        error!(?e, "invalid bayer_id from camera");
-                        Err(ASCOMError::INVALID_VALUE)
-                    }
-                },
-                None => {
-                    error!("invalid bayer_id from camera");
-                    Err(ASCOMError::INVALID_VALUE)
-                }
-            },
-            None => Err(ASCOMError::NOT_IMPLEMENTED),
+            error!("CamIsColor not available");
+            return Err(ASCOMError::NOT_IMPLEMENTED);
+        };
+        let Some(bayer_id) = self
+            .device
+            .is_control_available(qhyccd_rs::Control::CamColor)
+        else {
+            error!("invalid bayer_id from camera");
+            return Err(ASCOMError::INVALID_VALUE);
+        };
+        // https://www.cloudynights.com/topic/883660-software-relating-to-bayer-patterns/
+        match bayer_id.try_into() {
+            Ok(qhyccd_rs::BayerMode::GBRG) => Ok(1),
+            Ok(qhyccd_rs::BayerMode::GRBG) => Ok(0),
+            Ok(qhyccd_rs::BayerMode::BGGR) => Ok(1),
+            Ok(qhyccd_rs::BayerMode::RGGB) => Ok(0),
+            Err(e) => {
+                error!(?e, "invalid bayer_id from camera");
+                Err(ASCOMError::INVALID_VALUE)
+            }
         }
     }
 
@@ -427,10 +427,7 @@ impl Camera for QhyccdCamera {
     }
 
     async fn bin_x(&self) -> ASCOMResult<i32> {
-        if !self.connected().await.is_ok_and(|connected| connected) {
-            error!("camera not connected");
-            return Err(ASCOMError::NOT_CONNECTED);
-        };
+        ensure_connected!(self);
         Ok(*self.binning.read().await as i32)
     }
 
@@ -750,24 +747,23 @@ impl Camera for QhyccdCamera {
     async fn percent_completed(&self) -> ASCOMResult<i32> {
         ensure_connected!(self);
         match *self.state.read().await {
-            State::Idle => Ok(100),
+            State::Idle => Ok(100_i32),
             State::Exposing {
                 expected_duration_us,
                 ..
-            } => match self.device.get_remaining_exposure_us() {
-                Ok(remaining) => {
-                    let res = (100_f64 * remaining as f64 / expected_duration_us as f64) as i32;
-                    if res > 100_i32 {
-                        Ok(100_i32)
-                    } else {
-                        Ok(res)
-                    }
+            } => {
+                let Ok(remaining) = self.device.get_remaining_exposure_us() else {
+                    error!("get_remaining_exposure_us failed");
+                    return Err(ASCOMError::UNSPECIFIED);
+                };
+
+                let res = (100_f64 * remaining as f64 / expected_duration_us as f64) as i32;
+                if res > 100_i32 {
+                    Ok(100_i32)
+                } else {
+                    Ok(res)
                 }
-                Err(e) => {
-                    error!(?e, "get_remaining_exposure_us failed");
-                    Err(ASCOMError::UNSPECIFIED)
-                }
-            },
+            }
         }
     }
 
@@ -785,71 +781,62 @@ impl Camera for QhyccdCamera {
     async fn set_readout_mode(&self, readout_mode: i32) -> ASCOMResult {
         let readout_mode = readout_mode as u32;
         ensure_connected!(self);
-        match self.device.get_number_of_readout_modes() {
-            Ok(number) => {
-                if !(0..number).contains(&readout_mode) {
-                    error!(
-                        "readout_mode {} is greater than number of readout modes {}",
-                        readout_mode, number
-                    );
-                    return Err(ASCOMError::INVALID_VALUE);
-                }
-            }
-            Err(e) => {
-                error!("could not get number of readout modes, error code: {}", e);
-                return Err(ASCOMError::INVALID_VALUE);
-            }
-        };
-        match self.device.set_readout_mode(readout_mode) {
-            Ok(_) => Ok(()),
-            Err(e) => {
-                error!(?e, "set_readout_mode failed");
-                Err(ASCOMError::VALUE_NOT_SET)
-            }
+        let number = self.device.get_number_of_readout_modes().map_err(|e| {
+            error!(?e, "get_number_of_readout_modes failed");
+            ASCOMError::INVALID_VALUE
+        })?;
+        if !(0..number).contains(&readout_mode) {
+            error!(
+                "readout_mode {} is greater than number of readout modes {}",
+                readout_mode, number
+            );
+            return Err(ASCOMError::INVALID_VALUE);
         }
+        self.device.set_readout_mode(readout_mode).map_err(|e| {
+            error!(?e, "set_readout_mode failed");
+            ASCOMError::VALUE_NOT_SET
+        })
     }
 
     async fn readout_modes(&self) -> ASCOMResult<Vec<String>> {
         ensure_connected!(self);
-        match self.device.get_number_of_readout_modes() {
-            Ok(num) => {
-                let mut readout_modes = Vec::with_capacity(num as usize);
-                for i in 0..num {
-                    match self.device.get_readout_mode_name(i) {
-                        Ok(readout_mode) => readout_modes.push(readout_mode),
-                        Err(e) => {
-                            error!(?e, "get_readout_mode failed");
-                            return Err(ASCOMError::UNSPECIFIED);
-                        }
-                    }
+        let number = self.device.get_number_of_readout_modes().map_err(|e| {
+            error!(?e, "get_number_of_readout_modes failed");
+            ASCOMError::UNSPECIFIED
+        })?;
+        let mut readout_modes = Vec::with_capacity(number as usize);
+        for i in 0..number {
+            match self.device.get_readout_mode_name(i) {
+                Ok(readout_mode) => readout_modes.push(readout_mode),
+                Err(e) => {
+                    error!(?e, "get_readout_mode failed");
+                    return Err(ASCOMError::UNSPECIFIED);
                 }
-                Ok(readout_modes)
-            }
-            Err(e) => {
-                error!(?e, "get_number_of_readout_modes failed");
-                Err(ASCOMError::UNSPECIFIED)
             }
         }
+        Ok(readout_modes)
     }
 
     async fn sensor_type(&self) -> ASCOMResult<SensorType> {
         //see here: https://ascom-standards.org/api/#/Camera%20Specific%20Methods/get_camera__device_number__imagearray
         ensure_connected!(self);
-        match self
+        if self
             .device
             .is_control_available(qhyccd_rs::Control::CamIsColor)
+            .is_none()
         {
-            Some(_) => match self
-                .device
-                .is_control_available(qhyccd_rs::Control::CamColor)
-            {
-                Some(_bayer_id) => Ok(SensorType::RGGB),
-                None => {
-                    error!("invalid bayer_id from camera");
-                    Err(ASCOMError::INVALID_VALUE)
-                }
-            },
-            None => Ok(SensorType::Monochrome),
+            error!("CamIsColor not available");
+            return Ok(SensorType::Monochrome);
+        };
+        match self
+            .device
+            .is_control_available(qhyccd_rs::Control::CamColor)
+        {
+            Some(_bayer_id) => Ok(SensorType::RGGB),
+            None => {
+                error!("invalid bayer_id from camera");
+                Err(ASCOMError::INVALID_VALUE)
+            }
         }
     }
 
