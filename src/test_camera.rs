@@ -107,19 +107,30 @@ enum MockCameraType {
         duration_us: f64,
     },
     WithBinning {
-        camera_binning: BinningMode,
+        camera_binning: u32,
+    },
+    WithBinningAndValidBins {
+        camera_valid_bins: Vec<u32>,
+        camera_binning: u32,
     },
     WithBinningAndRoiAndCCDInfo {
         times: usize,
         camera_roi: CCDChipArea,
         camera_ccd_info: CCDChipInfo,
-        camera_binning: BinningMode,
+        camera_binning: u32,
+    },
+    WithBinningAndValidBinsAndRoiAndCCDInfo {
+        times: usize,
+        camera_roi: CCDChipArea,
+        camera_ccd_info: CCDChipInfo,
+        camera_binning: u32,
+        camera_valid_bins: Vec<u32>,
     },
     WithBinningAndRoiAndCCDInfoAndExposing {
         times: usize,
         camera_roi: CCDChipArea,
         camera_ccd_info: CCDChipInfo,
-        camera_binning: BinningMode,
+        camera_binning: u32,
         expected_duration: f64,
     },
     WithTargetTemperature {
@@ -139,7 +150,8 @@ enum MockCameraType {
 }
 
 fn new_camera(mut device: MockCamera, variant: MockCameraType) -> QhyccdCamera {
-    let mut binning = RwLock::new(BinningMode { symmetric_value: 1 });
+    let mut valid_bins = RwLock::new(None);
+    let mut binning = RwLock::new(0);
     let mut target_temperature = RwLock::new(None);
     let mut ccd_info = RwLock::new(None);
     let mut intended_roi = RwLock::new(None);
@@ -198,6 +210,15 @@ fn new_camera(mut device: MockCamera, variant: MockCameraType) -> QhyccdCamera {
         }
         MockCameraType::WithBinning { camera_binning } => {
             device.expect_is_open().times(1).returning(|| Ok(true));
+            valid_bins = RwLock::new(Some(vec![camera_binning]));
+            binning = RwLock::new(camera_binning);
+        }
+        MockCameraType::WithBinningAndValidBins {
+            camera_valid_bins,
+            camera_binning,
+        } => {
+            device.expect_is_open().once().returning(|| Ok(true));
+            valid_bins = RwLock::new(Some(camera_valid_bins));
             binning = RwLock::new(camera_binning);
         }
         MockCameraType::WithBinningAndRoiAndCCDInfo {
@@ -209,6 +230,19 @@ fn new_camera(mut device: MockCamera, variant: MockCameraType) -> QhyccdCamera {
             device.expect_is_open().times(times).returning(|| Ok(true));
             ccd_info = RwLock::new(Some(camera_ccd_info));
             intended_roi = RwLock::new(Some(camera_roi));
+            binning = RwLock::new(camera_binning);
+        }
+        MockCameraType::WithBinningAndValidBinsAndRoiAndCCDInfo {
+            times,
+            camera_roi,
+            camera_ccd_info,
+            camera_binning,
+            camera_valid_bins,
+        } => {
+            device.expect_is_open().times(times).returning(|| Ok(true));
+            ccd_info = RwLock::new(Some(camera_ccd_info));
+            intended_roi = RwLock::new(Some(camera_roi));
+            valid_bins = RwLock::new(Some(camera_valid_bins));
             binning = RwLock::new(camera_binning);
         }
         MockCameraType::WithBinningAndRoiAndCCDInfoAndExposing {
@@ -256,7 +290,7 @@ fn new_camera(mut device: MockCamera, variant: MockCameraType) -> QhyccdCamera {
         description: "QHYCCD camera".to_owned(),
         device,
         binning,
-        valid_bins: RwLock::new(None),
+        valid_bins,
         target_temperature,
         ccd_info,
         intended_roi,
@@ -284,7 +318,7 @@ async fn qhyccd_camera() {
         name: format!("QHYCCD-{}", mock.id()),
         description: "QHYCCD camera".to_owned(),
         device: mock.clone(),
-        binning: RwLock::new(BinningMode { symmetric_value: 1 }),
+        binning: RwLock::new(1_u32),
         valid_bins: RwLock::new(None),
         target_temperature: RwLock::new(None),
         ccd_info: RwLock::new(None),
@@ -301,7 +335,7 @@ async fn qhyccd_camera() {
     assert_eq!(camera.unique_id, "test_camera");
     assert_eq!(camera.name, "QHYCCD-test_camera");
     assert_eq!(camera.description, "QHYCCD camera");
-    assert_eq!(camera.binning.read().await.symmetric_value, 1);
+    assert_eq!(*camera.binning.read().await, 1);
     assert!(camera.valid_bins.read().await.is_none());
     assert!(camera.intended_roi.read().await.is_none());
     assert!(camera.last_exposure_start_time.read().await.is_none());
@@ -442,6 +476,14 @@ async fn set_connected_true_success() {
     //given
     let mut mock = MockCamera::new();
     mock.expect_open().times(1).returning(|| Ok(()));
+    mock.expect_is_control_available()
+        .once()
+        .withf(|control| *control == qhyccd_rs::Control::CamSingleFrameMode)
+        .returning(|_| Some(0_u32));
+    mock.expect_set_if_available()
+        .once()
+        .withf(|control, bits| *control == qhyccd_rs::Control::TransferBit && *bits == 16_f64)
+        .returning(|_, _| Ok(()));
     mock.expect_set_stream_mode()
         .once()
         .withf(|mode| *mode == qhyccd_rs::StreamMode::SingleFrameMode)
@@ -520,6 +562,14 @@ async fn set_connected_true_success_no_gain_no_offset() {
     //given
     let mut mock = MockCamera::new();
     mock.expect_open().times(1).returning(|| Ok(()));
+    mock.expect_is_control_available()
+        .once()
+        .withf(|control| *control == qhyccd_rs::Control::CamSingleFrameMode)
+        .returning(|_| Some(0_u32));
+    mock.expect_set_if_available()
+        .once()
+        .withf(|control, bits| *control == qhyccd_rs::Control::TransferBit && *bits == 16_f64)
+        .returning(|_, _| Ok(()));
     mock.expect_set_stream_mode()
         .once()
         .withf(|mode| *mode == qhyccd_rs::StreamMode::SingleFrameMode)
@@ -619,6 +669,10 @@ async fn set_connected_fail_set_stream_mode() {
     //given
     let mut mock = MockCamera::new();
     mock.expect_open().once().returning(|| Ok(()));
+    mock.expect_is_control_available()
+        .once()
+        .withf(|control| *control == qhyccd_rs::Control::CamSingleFrameMode)
+        .returning(|_| Some(0_u32));
     mock.expect_set_stream_mode()
         .once()
         .withf(|mode| *mode == qhyccd_rs::StreamMode::SingleFrameMode)
@@ -639,6 +693,10 @@ async fn set_connected_fail_set_readout_mode() {
     //given
     let mut mock = MockCamera::new();
     mock.expect_open().once().returning(|| Ok(()));
+    mock.expect_is_control_available()
+        .once()
+        .withf(|control| *control == qhyccd_rs::Control::CamSingleFrameMode)
+        .returning(|_| Some(0_u32));
     mock.expect_set_stream_mode()
         .once()
         .withf(|mode| *mode == qhyccd_rs::StreamMode::SingleFrameMode)
@@ -663,6 +721,10 @@ async fn set_connected_fail_init() {
     //given
     let mut mock = MockCamera::new();
     mock.expect_open().once().returning(|| Ok(()));
+    mock.expect_is_control_available()
+        .once()
+        .withf(|control| *control == qhyccd_rs::Control::CamSingleFrameMode)
+        .returning(|_| Some(0_u32));
     mock.expect_set_stream_mode()
         .once()
         .withf(|mode| *mode == qhyccd_rs::StreamMode::SingleFrameMode)
@@ -694,6 +756,14 @@ async fn set_connected_fail_get_ccd_info() {
         .once()
         .withf(|mode| *mode == qhyccd_rs::StreamMode::SingleFrameMode)
         .returning(|_| Ok(()));
+    mock.expect_is_control_available()
+        .once()
+        .withf(|control| *control == qhyccd_rs::Control::CamSingleFrameMode)
+        .returning(|_| Some(0_u32));
+    mock.expect_set_if_available()
+        .once()
+        .withf(|control, bits| *control == qhyccd_rs::Control::TransferBit && *bits == 16_f64)
+        .returning(|_, _| Ok(()));
     mock.expect_set_readout_mode()
         .once()
         .withf(|mode| *mode == 0)
@@ -722,6 +792,14 @@ async fn set_connected_fail_get_effective_area() {
         .once()
         .withf(|mode| *mode == qhyccd_rs::StreamMode::SingleFrameMode)
         .returning(|_| Ok(()));
+    mock.expect_is_control_available()
+        .once()
+        .withf(|control| *control == qhyccd_rs::Control::CamSingleFrameMode)
+        .returning(|_| Some(0_u32));
+    mock.expect_set_if_available()
+        .once()
+        .withf(|control, bits| *control == qhyccd_rs::Control::TransferBit && *bits == 16_f64)
+        .returning(|_, _| Ok(()));
     mock.expect_set_readout_mode()
         .once()
         .withf(|mode| *mode == 0)
@@ -761,6 +839,14 @@ async fn set_connected_fail_get_parameter_min_max_step_exposure() {
         .once()
         .withf(|mode| *mode == qhyccd_rs::StreamMode::SingleFrameMode)
         .returning(|_| Ok(()));
+    mock.expect_is_control_available()
+        .once()
+        .withf(|control| *control == qhyccd_rs::Control::CamSingleFrameMode)
+        .returning(|_| Some(0_u32));
+    mock.expect_set_if_available()
+        .once()
+        .withf(|control, bits| *control == qhyccd_rs::Control::TransferBit && *bits == 16_f64)
+        .returning(|_, _| Ok(()));
     mock.expect_set_readout_mode()
         .once()
         .withf(|mode| *mode == 0)
@@ -827,6 +913,14 @@ async fn set_connected_fail_get_parameter_min_max_step_gain() {
     //given
     let mut mock = MockCamera::new();
     mock.expect_open().times(1).returning(|| Ok(()));
+    mock.expect_is_control_available()
+        .once()
+        .withf(|control| *control == qhyccd_rs::Control::CamSingleFrameMode)
+        .returning(|_| Some(0_u32));
+    mock.expect_set_if_available()
+        .once()
+        .withf(|control, bits| *control == qhyccd_rs::Control::TransferBit && *bits == 16_f64)
+        .returning(|_, _| Ok(()));
     mock.expect_set_stream_mode()
         .once()
         .withf(|mode| *mode == qhyccd_rs::StreamMode::SingleFrameMode)
@@ -905,6 +999,14 @@ async fn set_connected_fail_get_parameter_min_max_step_offset() {
     //given
     let mut mock = MockCamera::new();
     mock.expect_open().times(1).returning(|| Ok(()));
+    mock.expect_is_control_available()
+        .once()
+        .withf(|control| *control == qhyccd_rs::Control::CamSingleFrameMode)
+        .returning(|_| Some(0_u32));
+    mock.expect_set_if_available()
+        .once()
+        .withf(|control, bits| *control == qhyccd_rs::Control::TransferBit && *bits == 16_f64)
+        .returning(|_, _| Ok(()));
     mock.expect_set_stream_mode()
         .once()
         .withf(|mode| *mode == qhyccd_rs::StreamMode::SingleFrameMode)
@@ -1215,7 +1317,13 @@ async fn sensor_name_success() {
 async fn bin_x_success() {
     //given
     let mock = MockCamera::new();
-    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
+    let camera = new_camera(
+        mock,
+        MockCameraType::WithBinningAndValidBins {
+            camera_valid_bins: { vec![1_u32, 2_u32] },
+            camera_binning: 1_u32,
+        },
+    );
     //when
     let res = camera.bin_x().await;
     //then
@@ -1227,7 +1335,13 @@ async fn bin_x_success() {
 async fn bin_y_success() {
     //given
     let mock = MockCamera::new();
-    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
+    let camera = new_camera(
+        mock,
+        MockCameraType::WithBinningAndValidBins {
+            camera_valid_bins: { vec![1_u32, 2_u32] },
+            camera_binning: 1_u32,
+        },
+    );
     //when
     let res = camera.bin_y().await;
     //then
@@ -1241,8 +1355,9 @@ async fn set_bin_x_success_same_bin() {
     let mock = MockCamera::new();
     let camera = new_camera(
         mock,
-        MockCameraType::WithBinning {
-            camera_binning: BinningMode { symmetric_value: 1 },
+        MockCameraType::WithBinningAndValidBins {
+            camera_valid_bins: { vec![1_u32, 2_u32] },
+            camera_binning: 1_u32,
         },
     );
     //when
@@ -1261,8 +1376,9 @@ async fn set_bin_x_success_different_bin_no_roi_yet() {
         .returning(|_, _| Ok(()));
     let camera = new_camera(
         mock,
-        MockCameraType::WithBinning {
-            camera_binning: BinningMode { symmetric_value: 2 },
+        MockCameraType::WithBinningAndValidBins {
+            camera_valid_bins: { vec![1_u32, 2_u32] },
+            camera_binning: 2_u32,
         },
     );
     //when
@@ -1281,7 +1397,7 @@ async fn set_bin_x_success_different_bin_with_roi_even() {
         .returning(|_, _| Ok(()));
     let camera = new_camera(
         mock,
-        MockCameraType::WithBinningAndRoiAndCCDInfo {
+        MockCameraType::WithBinningAndValidBinsAndRoiAndCCDInfo {
             times: 9,
             camera_roi: CCDChipArea {
                 start_x: 10,
@@ -1298,7 +1414,8 @@ async fn set_bin_x_success_different_bin_with_roi_even() {
                 pixel_height: 2.9_f64,
                 bits_per_pixel: 16,
             },
-            camera_binning: BinningMode { symmetric_value: 1 },
+            camera_binning: 1_u32,
+            camera_valid_bins: { vec![1_u32, 2_u32] },
         },
     );
     //when
@@ -1325,7 +1442,7 @@ async fn set_bin_x_success_different_bin_with_roi_odd() {
         .returning(|_, _| Ok(()));
     let camera = new_camera(
         mock,
-        MockCameraType::WithBinningAndRoiAndCCDInfo {
+        MockCameraType::WithBinningAndValidBinsAndRoiAndCCDInfo {
             times: 9,
             camera_roi: CCDChipArea {
                 start_x: 5,
@@ -1342,7 +1459,8 @@ async fn set_bin_x_success_different_bin_with_roi_odd() {
                 pixel_height: 2.9_f64,
                 bits_per_pixel: 16,
             },
-            camera_binning: BinningMode { symmetric_value: 1 },
+            camera_binning: 1_u32,
+            camera_valid_bins: { vec![1_u32, 2_u32] },
         },
     );
     //when
@@ -1366,13 +1484,28 @@ async fn set_bin_y_success() {
     let camera = new_camera(
         mock,
         MockCameraType::WithBinning {
-            camera_binning: BinningMode { symmetric_value: 1 },
+            camera_binning: 1_u32,
         },
     );
     //when
     let res = camera.set_bin_y(1).await;
     //then
     assert!(res.is_ok());
+}
+
+#[tokio::test]
+async fn set_bin_x_fail_no_valid_bins() {
+    //given
+    let mock = MockCamera::new();
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
+    //when
+    let res = camera.set_bin_x(2).await;
+    //then
+    assert!(res.is_err());
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::NOT_CONNECTED.to_string()
+    );
 }
 
 #[tokio::test]
@@ -1383,7 +1516,13 @@ async fn set_bin_x_fail_set_bin_mode() {
         .times(1)
         .withf(|bin_x: &u32, bin_y: &u32| *bin_x == 2 && *bin_y == 2)
         .returning(|_, _| Err(eyre!("Could not set bin mode")));
-    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
+    let camera = new_camera(
+        mock,
+        MockCameraType::WithBinningAndValidBins {
+            camera_valid_bins: { vec![1_u32, 2_u32] },
+            camera_binning: 1_u32,
+        },
+    );
     //when
     let res = camera.set_bin_x(2).await;
     //then
@@ -1398,14 +1537,20 @@ async fn set_bin_x_fail_set_bin_mode() {
 async fn set_bin_x_fail_invalid_bin() {
     //given
     let mock = MockCamera::new();
-    let camera = new_camera(mock, MockCameraType::Untouched);
+    let camera = new_camera(
+        mock,
+        MockCameraType::WithBinningAndValidBins {
+            camera_valid_bins: { vec![1_u32, 2_u32] },
+            camera_binning: 1_u32,
+        },
+    );
     //when
     let res = camera.set_bin_x(0).await;
     //then
     assert!(res.is_err());
     assert_eq!(
         res.err().unwrap().to_string(),
-        ASCOMError::invalid_value("bin value must be >= 1").to_string()
+        ASCOMError::invalid_value("bin value must be one of the valid bins").to_string()
     );
 }
 
@@ -2433,6 +2578,9 @@ async fn readout_mode_fail_get_readout_mode() {
 async fn set_readout_mode_success() {
     //given
     let mut mock = MockCamera::new();
+    mock.expect_get_number_of_readout_modes()
+        .once()
+        .returning(|| Ok(4_u32));
     mock.expect_set_readout_mode()
         .once()
         .withf(|readout_mode| *readout_mode == 3)
@@ -2445,9 +2593,46 @@ async fn set_readout_mode_success() {
 }
 
 #[tokio::test]
+async fn set_readout_mode_fail_invalid_readout_mode() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_get_number_of_readout_modes()
+        .once()
+        .returning(|| Ok(4_u32));
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
+    //when
+    let res = camera.set_readout_mode(5_i32).await;
+    //then
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::INVALID_VALUE.to_string(),
+    )
+}
+
+#[tokio::test]
+async fn set_readout_mode_fail_get_number_of_readout_modes() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_get_number_of_readout_modes()
+        .once()
+        .returning(|| Err(eyre!(qhyccd_rs::QHYError::GetNumberOfReadoutModesError)));
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
+    //when
+    let res = camera.set_readout_mode(5_i32).await;
+    //then
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::INVALID_VALUE.to_string(),
+    )
+}
+
+#[tokio::test]
 async fn set_readout_mode_fail_set_readout_mode() {
     //given
     let mut mock = MockCamera::new();
+    mock.expect_get_number_of_readout_modes()
+        .once()
+        .returning(|| Ok(4_u32));
     mock.expect_set_readout_mode()
         .once()
         .withf(|readout_mode| *readout_mode == 3)
@@ -2743,7 +2928,7 @@ async fn start_exposure_fail_num_x_greater_than_camera_x_size() {
                 pixel_height: 2.9,
                 bits_per_pixel: 16,
             },
-            camera_binning: BinningMode { symmetric_value: 1 },
+            camera_binning: 1_u32,
         },
     );
     //when
@@ -2778,7 +2963,7 @@ async fn start_exposure_fail_num_y_greater_than_camera_y_size() {
                 pixel_height: 2.9,
                 bits_per_pixel: 16,
             },
-            camera_binning: BinningMode { symmetric_value: 1 },
+            camera_binning: 1_u32,
         },
     );
     //when
@@ -2824,7 +3009,7 @@ async fn start_exposure_fail_set_roi() {
                 pixel_height: 2.9,
                 bits_per_pixel: 16,
             },
-            camera_binning: BinningMode { symmetric_value: 1 },
+            camera_binning: 1_u32,
         },
     );
     //when
@@ -2870,7 +3055,7 @@ async fn start_exposure_fail_is_exposing_no_miri() {
                 pixel_height: 2.9_f64,
                 bits_per_pixel: 16,
             },
-            camera_binning: BinningMode { symmetric_value: 1 },
+            camera_binning: 1_u32,
             expected_duration: 1000_f64,
         },
     );
@@ -2946,7 +3131,7 @@ async fn start_exposure_success_1_channel_8_bpp_no_miri() {
                 pixel_height: 2.9_f64,
                 bits_per_pixel: 16,
             },
-            camera_binning: BinningMode { symmetric_value: 1 },
+            camera_binning: 1_u32,
         },
     );
     //when
@@ -3018,7 +3203,7 @@ async fn start_exposure_fail_1_channel_8_bpp_invalid_vector_no_miri() {
                 pixel_height: 2.9_f64,
                 bits_per_pixel: 16,
             },
-            camera_binning: BinningMode { symmetric_value: 1 },
+            camera_binning: 1_u32,
         },
     );
     //when
@@ -3093,7 +3278,7 @@ async fn start_exposure_success_1_channel_16_bpp_no_miri() {
                 pixel_height: 2.9_f64,
                 bits_per_pixel: 16,
             },
-            camera_binning: BinningMode { symmetric_value: 1 },
+            camera_binning: 1_u32,
         },
     );
     //when
@@ -3165,7 +3350,7 @@ async fn start_exposure_fail_1_channel_16_bpp_invalid_vector_no_miri() {
                 pixel_height: 2.9_f64,
                 bits_per_pixel: 16,
             },
-            camera_binning: BinningMode { symmetric_value: 1 },
+            camera_binning: 1_u32,
         },
     );
     //when
@@ -3240,7 +3425,7 @@ async fn start_exposure_fail_unsupported_channel_16_bpp_no_miri() {
                 pixel_height: 2.9_f64,
                 bits_per_pixel: 16,
             },
-            camera_binning: BinningMode { symmetric_value: 1 },
+            camera_binning: 1_u32,
         },
     );
     //when
@@ -3315,7 +3500,7 @@ async fn start_exposure_fail_1_channel_unsupported_bpp_no_miri() {
                 pixel_height: 2.9_f64,
                 bits_per_pixel: 16,
             },
-            camera_binning: BinningMode { symmetric_value: 1 },
+            camera_binning: 1_u32,
         },
     );
     //when
@@ -3371,7 +3556,7 @@ async fn start_exposure_fail_set_parameter_no_miri() {
                 pixel_height: 2.9_f64,
                 bits_per_pixel: 16,
             },
-            camera_binning: BinningMode { symmetric_value: 1 },
+            camera_binning: 1_u32,
         },
     );
     //when
@@ -3433,7 +3618,7 @@ async fn start_exposure_fail_start_single_frame_exposure_no_miri() {
                 pixel_height: 2.9_f64,
                 bits_per_pixel: 16,
             },
-            camera_binning: BinningMode { symmetric_value: 1 },
+            camera_binning: 1_u32,
         },
     );
     //when
@@ -3495,7 +3680,7 @@ async fn start_exposure_fail_get_image_size_no_miri() {
                 pixel_height: 2.9_f64,
                 bits_per_pixel: 16,
             },
-            camera_binning: BinningMode { symmetric_value: 1 },
+            camera_binning: 1_u32,
         },
     );
     //when
@@ -3566,7 +3751,7 @@ async fn start_exposure_fail_get_single_frame_no_miri() {
                 pixel_height: 2.9_f64,
                 bits_per_pixel: 16,
             },
-            camera_binning: BinningMode { symmetric_value: 1 },
+            camera_binning: 1_u32,
         },
     );
     //when
