@@ -1296,16 +1296,12 @@ impl Camera for QhyccdCamera {
                 if !(min as i32..=max as i32).contains(&offset) {
                     return Err(ASCOMError::INVALID_VALUE);
                 }
-                match self
-                    .device
+                self.device
                     .set_parameter(qhyccd_rs::Control::Offset, offset as f64)
-                {
-                    Ok(_) => Ok(()),
-                    Err(e) => {
+                    .map_err(|e| {
                         error!(?e, "failed to set offset");
-                        Err(ASCOMError::UNSPECIFIED)
-                    }
-                }
+                        ASCOMError::UNSPECIFIED
+                    })
             }
             None => {
                 debug!("offset control not available");
