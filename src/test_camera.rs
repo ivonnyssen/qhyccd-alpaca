@@ -156,6 +156,7 @@ fn new_camera(mut device: MockCamera, variant: MockCameraType) -> QhyccdCamera {
     let mut ccd_info = RwLock::new(None);
     let mut intended_roi = RwLock::new(None);
     let mut exposing = RwLock::new(State::Idle);
+    let readout_speed_min_max_step = RwLock::new(None);
     let mut exposure_min_max_step = RwLock::new(None);
     let mut last_exposure_start_time = RwLock::new(None);
     let mut last_exposure_duration_us = RwLock::new(None);
@@ -294,6 +295,7 @@ fn new_camera(mut device: MockCamera, variant: MockCameraType) -> QhyccdCamera {
         target_temperature,
         ccd_info,
         intended_roi,
+        readout_speed_min_max_step,
         exposure_min_max_step,
         last_exposure_start_time,
         last_exposure_duration_us,
@@ -323,6 +325,7 @@ async fn qhyccd_camera() {
         target_temperature: RwLock::new(None),
         ccd_info: RwLock::new(None),
         intended_roi: RwLock::new(None),
+        readout_speed_min_max_step: RwLock::new(None),
         exposure_min_max_step: RwLock::new(None),
         last_exposure_start_time: RwLock::new(None),
         last_exposure_duration_us: RwLock::new(None),
@@ -504,7 +507,7 @@ async fn set_connected_true_success() {
             bits_per_pixel: 16,
         })
     });
-    mock.expect_get_effective_area().times(1).returning(|| {
+    mock.expect_get_effective_area().once().returning(|| {
         Ok(CCDChipArea {
             start_x: 0,
             start_y: 0,
@@ -531,6 +534,14 @@ async fn set_connected_true_success() {
             Control::CamBin8x8mode => Some(0_u32),
             _ => panic!("Unexpected control"),
         });
+    mock.expect_is_control_available()
+        .once()
+        .withf(|control| *control == qhyccd_rs::Control::Speed)
+        .returning(|_| Some(0));
+    mock.expect_get_parameter_min_max_step()
+        .once()
+        .withf(|control| *control == qhyccd_rs::Control::Speed)
+        .returning(|_| Ok((0_f64, 255_f64, 1_f64)));
     mock.expect_get_parameter_min_max_step()
         .once()
         .withf(|control| *control == qhyccd_rs::Control::Exposure)
@@ -558,7 +569,7 @@ async fn set_connected_true_success() {
 }
 
 #[tokio::test]
-async fn set_connected_true_success_no_gain_no_offset() {
+async fn set_connected_true_success_no_gain_no_offset_no_speed() {
     //given
     let mut mock = MockCamera::new();
     mock.expect_open().times(1).returning(|| Ok(()));
@@ -617,6 +628,10 @@ async fn set_connected_true_success_no_gain_no_offset() {
             Control::CamBin8x8mode => Some(0_u32),
             _ => panic!("Unexpected control"),
         });
+    mock.expect_is_control_available()
+        .once()
+        .withf(|control| *control == qhyccd_rs::Control::Speed)
+        .returning(|_| None);
     mock.expect_get_parameter_min_max_step()
         .once()
         .withf(|control| *control == qhyccd_rs::Control::Exposure)
@@ -890,6 +905,14 @@ async fn set_connected_fail_get_parameter_min_max_step_exposure() {
             Control::CamBin8x8mode => Some(0_u32),
             _ => panic!("Unexpected control"),
         });
+    mock.expect_is_control_available()
+        .once()
+        .withf(|control| *control == qhyccd_rs::Control::Speed)
+        .returning(|_| Some(0));
+    mock.expect_get_parameter_min_max_step()
+        .once()
+        .withf(|control| *control == qhyccd_rs::Control::Speed)
+        .returning(|_| Ok((0_f64, 255_f64, 1_f64)));
     mock.expect_get_parameter_min_max_step()
         .once()
         .withf(|control| *control == qhyccd_rs::Control::Exposure)
@@ -968,6 +991,14 @@ async fn set_connected_fail_get_parameter_min_max_step_gain() {
             Control::CamBin8x8mode => Some(0_u32),
             _ => panic!("Unexpected control"),
         });
+    mock.expect_is_control_available()
+        .once()
+        .withf(|control| *control == qhyccd_rs::Control::Speed)
+        .returning(|_| Some(0));
+    mock.expect_get_parameter_min_max_step()
+        .once()
+        .withf(|control| *control == qhyccd_rs::Control::Speed)
+        .returning(|_| Ok((0_f64, 255_f64, 1_f64)));
     mock.expect_get_parameter_min_max_step()
         .once()
         .withf(|control| *control == qhyccd_rs::Control::Exposure)
@@ -1054,6 +1085,14 @@ async fn set_connected_fail_get_parameter_min_max_step_offset() {
             Control::CamBin8x8mode => Some(0_u32),
             _ => panic!("Unexpected control"),
         });
+    mock.expect_is_control_available()
+        .once()
+        .withf(|control| *control == qhyccd_rs::Control::Speed)
+        .returning(|_| Some(0));
+    mock.expect_get_parameter_min_max_step()
+        .once()
+        .withf(|control| *control == qhyccd_rs::Control::Speed)
+        .returning(|_| Ok((0_f64, 255_f64, 1_f64)));
     mock.expect_get_parameter_min_max_step()
         .once()
         .withf(|control| *control == qhyccd_rs::Control::Exposure)

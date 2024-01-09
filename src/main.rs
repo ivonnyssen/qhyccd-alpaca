@@ -63,6 +63,7 @@ struct QhyccdCamera {
     target_temperature: RwLock<Option<f64>>,
     ccd_info: RwLock<Option<CCDChipInfo>>,
     intended_roi: RwLock<Option<qhyccd_rs::CCDChipArea>>,
+    readout_speed_min_max_step: RwLock<Option<(f64, f64, f64)>>,
     exposure_min_max_step: RwLock<Option<(f64, f64, f64)>>,
     last_exposure_start_time: RwLock<Option<SystemTime>>,
     last_exposure_duration_us: RwLock<Option<u32>>,
@@ -75,48 +76,30 @@ struct QhyccdCamera {
 impl QhyccdCamera {
     fn get_valid_binning_modes(&self) -> Vec<u32> {
         let mut valid_binning_modes = Vec::with_capacity(6);
-        if self
-            .device
+        self.device
             .is_control_available(qhyccd_rs::Control::CamBin1x1mode)
             .is_some()
-        {
-            valid_binning_modes.push(1_u32);
-        }
-        if self
-            .device
+            .then(|| valid_binning_modes.push(1_u32));
+        self.device
             .is_control_available(qhyccd_rs::Control::CamBin2x2mode)
             .is_some()
-        {
-            valid_binning_modes.push(2_u32);
-        }
-        if self
-            .device
+            .then(|| valid_binning_modes.push(2_u32));
+        self.device
             .is_control_available(qhyccd_rs::Control::CamBin3x3mode)
             .is_some()
-        {
-            valid_binning_modes.push(3_u32);
-        }
-        if self
-            .device
+            .then(|| valid_binning_modes.push(3_u32));
+        self.device
             .is_control_available(qhyccd_rs::Control::CamBin4x4mode)
             .is_some()
-        {
-            valid_binning_modes.push(4_u32);
-        }
-        if self
-            .device
+            .then(|| valid_binning_modes.push(4_u32));
+        self.device
             .is_control_available(qhyccd_rs::Control::CamBin6x6mode)
             .is_some()
-        {
-            valid_binning_modes.push(6_u32);
-        }
-        if self
-            .device
+            .then(|| valid_binning_modes.push(6_u32));
+        self.device
             .is_control_available(qhyccd_rs::Control::CamBin8x8mode)
             .is_some()
-        {
-            valid_binning_modes.push(8_u32);
-        }
+            .then(|| valid_binning_modes.push(8_u32));
         valid_binning_modes
     }
 
@@ -260,6 +243,20 @@ impl QhyccdCamera {
         })?;
         *lock = Some(area);
         *self.valid_bins.write().await = Some(self.get_valid_binning_modes());
+        match self.device.is_control_available(qhyccd_rs::Control::Speed) {
+            Some(_) => {
+                let mut lock = self.readout_speed_min_max_step.write().await;
+                let readout_speed_min_max_step = self
+                    .device
+                    .get_parameter_min_max_step(qhyccd_rs::Control::Speed)
+                    .map_err(|e| {
+                        error!(?e, "get_readout_speed_min_max_step failed");
+                        ASCOMError::NOT_CONNECTED
+                    })?;
+                *lock = Some(readout_speed_min_max_step);
+            }
+            None => debug!("readout_speed control not available"),
+        }
         let mut lock = self.exposure_min_max_step.write().await;
         let exposure_min_max = self
             .device
@@ -1302,6 +1299,49 @@ impl Camera for QhyccdCamera {
             .map(|(min, _max)| min as i32)
             .ok_or(ASCOMError::NOT_IMPLEMENTED)
     }
+
+    async fn can_fast_readout(&self) -> ASCOMResult<bool> {
+        ensure_connected!(self);
+        Ok(self.readout_speed_min_max_step.read().await.is_some())
+    }
+
+    async fn fast_readout(&self) -> ASCOMResult<bool> {
+        ensure_connected!(self);
+        self.device
+            .is_control_available(qhyccd_rs::Control::Speed)
+            .ok_or_else(|| {
+                debug!("readout speed control not available");
+                ASCOMError::NOT_IMPLEMENTED
+            })?;
+        //TODO: need to actually calulate this, check if the actual value comes backk from the
+        //camera, otherwise store it in the driver
+        Ok(true)
+    }
+
+    async fn set_fast_readout(&self, fast_readout: bool) -> ASCOMResult {
+        ensure_connected!(self);
+        self.device
+            .is_control_available(qhyccd_rs::Control::Speed)
+            .ok_or_else(|| {
+                debug!("readout speed control not available");
+                ASCOMError::NOT_IMPLEMENTED
+            })?;
+        let (min, max, _step) = self
+                        .readout_speed_min_max_step
+                        .read()
+                        .await
+                        .ok_or(ASCOMError::unspecified("camera reports readout speed control available, but min, max values are not set after initialization"))?;
+        let speed = match fast_readout {
+            true => max,
+            false => min,
+        };
+        self.device
+            .set_parameter(qhyccd_rs::Control::Speed, speed)
+            .map_err(|e| {
+                error!(?e, "failed to set speed");
+                ASCOMError::UNSPECIFIED
+            })
+    }
 }
 
 #[derive(Debug)]
@@ -1531,6 +1571,7 @@ async fn main() -> eyre::Result<std::convert::Infallible> {
             target_temperature: RwLock::new(None),
             ccd_info: RwLock::new(None),
             intended_roi: RwLock::new(None),
+            readout_speed_min_max_step: RwLock::new(None),
             exposure_min_max_step: RwLock::new(None),
             last_exposure_start_time: RwLock::new(None),
             last_exposure_duration_us: RwLock::new(None),
