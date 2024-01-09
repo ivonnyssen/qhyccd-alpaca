@@ -120,24 +120,44 @@ impl QhyccdCamera {
         valid_binning_modes
     }
 
-    fn transform_image(image: qhyccd_rs::ImageData) -> Result<ImageArray> {
+    fn validate_image_data_shape(
+        &self,
+        width: usize,
+        height: usize,
+        data_length: usize,
+        bytes_per_pixel: usize,
+    ) -> Result<()> {
+        match width * height <= data_length * bytes_per_pixel {
+            true => Ok(()),
+            false => {
+                error!(
+                        "image data length ({}) does not match width ({}) * height ({}) * bytes_per_pixel ({})",
+                        data_length,
+                        width,
+                        height,
+                        bytes_per_pixel
+                    );
+                Err(eyre!(
+                        "image data length ({}) does not match width ({}) * height ({}) * bytes_per_pixel ({})",
+                        data_length,
+                        width,
+                        height,
+                        bytes_per_pixel
+                    ))
+            }
+        }
+    }
+
+    fn transform_image(&self, image: qhyccd_rs::ImageData) -> Result<ImageArray> {
         match image.channels {
             1_u32 => match image.bits_per_pixel {
                 8_u32 => {
-                    if (image.width as usize * image.height as usize) > image.data.len() {
-                        error!(
-                            "image data length ({}) does not match width ({}) * height ({})",
-                            image.data.len(),
-                            image.width,
-                            image.height
-                        );
-                        return Err(eyre!(
-                            "image data length ({}) does not match width ({}) * height ({})",
-                            image.data.len(),
-                            image.width,
-                            image.height
-                        ));
-                    }
+                    self.validate_image_data_shape(
+                        image.width as usize,
+                        image.height as usize,
+                        image.data.len(),
+                        1_usize,
+                    )?;
                     let data: Vec<u8> =
                         image.data[0_usize..image.width as usize * image.height as usize].to_vec();
                     match Array3::from_shape_vec(
@@ -156,20 +176,12 @@ impl QhyccdCamera {
                     }
                 }
                 16_u32 => {
-                    if (image.width as usize * image.height as usize * 2_usize) > image.data.len() {
-                        error!(
-                            "image data length ({}) does not match width ({}) * height ({}) * 2",
-                            image.data.len(),
-                            image.width,
-                            image.height
-                        );
-                        return Err(eyre!(
-                            "image data length ({}) does not match width ({}) * height ({}) * 2",
-                            image.data.len(),
-                            image.width,
-                            image.height
-                        ));
-                    }
+                    self.validate_image_data_shape(
+                        image.width as usize,
+                        image.height as usize,
+                        image.data.len(),
+                        2_usize,
+                    )?;
                     let data = image.data
                         [0_usize..image.width as usize * image.height as usize * 2_usize]
                         .to_vec()
@@ -202,6 +214,99 @@ impl QhyccdCamera {
             }
         }
     }
+
+    async fn connect(&self) -> ASCOMResult {
+        self.device.open().map_err(|e| {
+            error!(?e, "open failed");
+            ASCOMError::NOT_CONNECTED
+        })?;
+        self.device
+            .is_control_available(qhyccd_rs::Control::CamSingleFrameMode)
+            .ok_or_else(|| {
+                error!("CameraFeature::CamLiveVideoMode is not supported");
+                ASCOMError::NOT_CONNECTED
+            })?;
+        self.device
+            .set_stream_mode(qhyccd_rs::StreamMode::SingleFrameMode)
+            .map_err(|e| {
+                error!(?e, "setting StreamMode to SingleFrameMode failed");
+                ASCOMError::NOT_CONNECTED
+            })?;
+        self.device.set_readout_mode(0).map_err(|e| {
+            error!(?e, "setting readout mode to 0 failed");
+            ASCOMError::NOT_CONNECTED
+        })?;
+        self.device.init().map_err(|e| {
+            error!(?e, "camera init failed");
+            ASCOMError::NOT_CONNECTED
+        })?;
+        self.device
+            .set_if_available(qhyccd_rs::Control::TransferBit, 16_f64)
+            .map_err(|e| {
+                error!(?e, "setting transfer bits is not supported");
+                ASCOMError::NOT_CONNECTED
+            })?;
+        trace!(cam_transfer_bit = 16.0);
+        let mut lock = self.ccd_info.write().await;
+        let info = self.device.get_ccd_info().map_err(|e| {
+            error!(?e, "get_ccd_info failed");
+            ASCOMError::NOT_CONNECTED
+        })?;
+        *lock = Some(info);
+        let mut lock = self.intended_roi.write().await;
+        let area = self.device.get_effective_area().map_err(|e| {
+            error!(?e, "get_effective_area failed");
+            ASCOMError::NOT_CONNECTED
+        })?;
+        *lock = Some(area);
+        *self.valid_bins.write().await = Some(self.get_valid_binning_modes());
+        let mut lock = self.exposure_min_max_step.write().await;
+        let exposure_min_max = self
+            .device
+            .get_parameter_min_max_step(qhyccd_rs::Control::Exposure)
+            .map_err(|e| {
+                error!(?e, "get_exposure_min_max_step failed");
+                ASCOMError::NOT_CONNECTED
+            })?;
+        *lock = Some(exposure_min_max);
+        match self.device.is_control_available(qhyccd_rs::Control::Gain) {
+            Some(_) => {
+                let mut lock = self.gain_min_max.write().await;
+                *lock = match self
+                    .device
+                    .get_parameter_min_max_step(qhyccd_rs::Control::Gain)
+                {
+                    Ok((min, max, _step)) => Some((min, max)),
+                    Err(e) => {
+                        error!(?e, "get_gain_min_max failed");
+                        return Err(ASCOMError::NOT_CONNECTED);
+                    }
+                };
+            }
+            None => {
+                debug!("gain control not available");
+            }
+        }
+        match self.device.is_control_available(qhyccd_rs::Control::Offset) {
+            Some(_) => {
+                let mut lock = self.offset_min_max.write().await;
+                *lock = match self
+                    .device
+                    .get_parameter_min_max_step(qhyccd_rs::Control::Offset)
+                {
+                    Ok((min, max, _step)) => Some((min, max)),
+                    Err(e) => {
+                        error!(?e, "get_offset_min_max failed");
+                        return Err(ASCOMError::NOT_CONNECTED);
+                    }
+                };
+            }
+            None => {
+                debug!("offset control not available");
+            }
+        }
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -225,101 +330,7 @@ impl Device for QhyccdCamera {
         match self.connected().await? == connected {
             true => return Ok(()),
             false => match connected {
-                true => {
-                    self.device.open().map_err(|e| {
-                        error!(?e, "open failed");
-                        ASCOMError::NOT_CONNECTED
-                    })?;
-                    self.device
-                        .is_control_available(qhyccd_rs::Control::CamSingleFrameMode)
-                        .ok_or_else(|| {
-                            error!("CameraFeature::CamLiveVideoMode is not supported");
-                            ASCOMError::NOT_CONNECTED
-                        })?;
-                    self.device
-                        .set_stream_mode(qhyccd_rs::StreamMode::SingleFrameMode)
-                        .map_err(|e| {
-                            error!(?e, "setting StreamMode to SingleFrameMode failed");
-                            ASCOMError::NOT_CONNECTED
-                        })?;
-                    self.device.set_readout_mode(0).map_err(|e| {
-                        error!(?e, "setting readout mode to 0 failed");
-                        ASCOMError::NOT_CONNECTED
-                    })?;
-                    self.device.init().map_err(|e| {
-                        error!(?e, "camera init failed");
-                        ASCOMError::NOT_CONNECTED
-                    })?;
-                    match self
-                        .device
-                        .set_if_available(qhyccd_rs::Control::TransferBit, 16_f64)
-                    {
-                        Ok(_) => trace!(cam_transfer_bit = 16.0),
-                        Err(_) => {
-                            error!("setting transfer bits is not supported");
-                            return Err(ASCOMError::NOT_CONNECTED);
-                        }
-                    };
-                    let mut lock = self.ccd_info.write().await;
-                    let info = self.device.get_ccd_info().map_err(|e| {
-                        error!(?e, "get_ccd_info failed");
-                        ASCOMError::NOT_CONNECTED
-                    })?;
-                    *lock = Some(info);
-                    let mut lock = self.intended_roi.write().await;
-                    let area = self.device.get_effective_area().map_err(|e| {
-                        error!(?e, "get_effective_area failed");
-                        ASCOMError::NOT_CONNECTED
-                    })?;
-                    *lock = Some(area);
-                    *self.valid_bins.write().await = Some(self.get_valid_binning_modes());
-                    let mut lock = self.exposure_min_max_step.write().await;
-                    let exposure_min_max = self
-                        .device
-                        .get_parameter_min_max_step(qhyccd_rs::Control::Exposure)
-                        .map_err(|e| {
-                            error!(?e, "get_exposure_min_max_step failed");
-                            ASCOMError::NOT_CONNECTED
-                        })?;
-                    *lock = Some(exposure_min_max);
-                    match self.device.is_control_available(qhyccd_rs::Control::Gain) {
-                        Some(_) => {
-                            let mut lock = self.gain_min_max.write().await;
-                            *lock = match self
-                                .device
-                                .get_parameter_min_max_step(qhyccd_rs::Control::Gain)
-                            {
-                                Ok((min, max, _step)) => Some((min, max)),
-                                Err(e) => {
-                                    error!(?e, "get_gain_min_max failed");
-                                    return Err(ASCOMError::NOT_CONNECTED);
-                                }
-                            };
-                        }
-                        None => {
-                            debug!("gain control not available");
-                        }
-                    }
-                    match self.device.is_control_available(qhyccd_rs::Control::Offset) {
-                        Some(_) => {
-                            let mut lock = self.offset_min_max.write().await;
-                            *lock = match self
-                                .device
-                                .get_parameter_min_max_step(qhyccd_rs::Control::Offset)
-                            {
-                                Ok((min, max, _step)) => Some((min, max)),
-                                Err(e) => {
-                                    error!(?e, "get_offset_min_max failed");
-                                    return Err(ASCOMError::NOT_CONNECTED);
-                                }
-                            };
-                        }
-                        None => {
-                            debug!("offset control not available");
-                        }
-                    }
-                    Ok(())
-                }
+                true => self.connect().await,
                 false => self.device.close().map_err(|e| {
                     error!(?e, "close_camera failed");
                     ASCOMError::NOT_CONNECTED
@@ -792,10 +803,28 @@ impl Camera for QhyccdCamera {
             );
             return Err(ASCOMError::INVALID_VALUE);
         }
-        self.device.set_readout_mode(readout_mode).map_err(|e| {
-            error!(?e, "set_readout_mode failed");
-            ASCOMError::VALUE_NOT_SET
-        })
+        let (width, height) = self
+            .device
+            .get_readout_mode_resolution(readout_mode)
+            .map_err(|e| {
+                error!(?e, "get_readout_mode_resolution failed");
+                ASCOMError::INVALID_VALUE
+            })?;
+        match self.device.set_readout_mode(readout_mode) {
+            Ok(_) => {
+                let mut lock = self.ccd_info.write().await;
+                *lock = lock.map(|ccd_info| CCDChipInfo {
+                    image_width: width,
+                    image_height: height,
+                    ..ccd_info
+                });
+                Ok(())
+            }
+            Err(e) => {
+                error!(?e, "set_readout_mode failed");
+                return Err(ASCOMError::VALUE_NOT_SET);
+            }
+        }
     }
 
     async fn readout_modes(&self) -> ASCOMResult<Vec<String>> {
@@ -929,7 +958,7 @@ impl Camera for QhyccdCamera {
                             return Err(ASCOMError::UNSPECIFIED);
                         };
                         let  mut lock = self.last_image.write().await;
-                        *lock = Some(QhyccdCamera::transform_image(image).map_err(|e| {
+                        *lock = Some(self.transform_image(image).map_err(|e| {
                                 error!(?e, "failed to transform image");
                                 ASCOMError::INVALID_OPERATION
                         })?);

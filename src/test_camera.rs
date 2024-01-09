@@ -2581,6 +2581,10 @@ async fn set_readout_mode_success() {
     mock.expect_get_number_of_readout_modes()
         .once()
         .returning(|| Ok(4_u32));
+    mock.expect_get_readout_mode_resolution()
+        .once()
+        .withf(|readout_mode| *readout_mode == 3)
+        .returning(|_| Ok((1920_u32, 1080_u32)));
     mock.expect_set_readout_mode()
         .once()
         .withf(|readout_mode| *readout_mode == 3)
@@ -2633,6 +2637,10 @@ async fn set_readout_mode_fail_set_readout_mode() {
     mock.expect_get_number_of_readout_modes()
         .once()
         .returning(|| Ok(4_u32));
+    mock.expect_get_readout_mode_resolution()
+        .once()
+        .withf(|readout_mode| *readout_mode == 3)
+        .returning(|_| Ok((1920_u32, 1080_u32)));
     mock.expect_set_readout_mode()
         .once()
         .withf(|readout_mode| *readout_mode == 3)
