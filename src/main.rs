@@ -1,4 +1,5 @@
 #![warn(clippy::integer_division)]
+use core::f64;
 use qhyccd_rs::{CCDChipInfo, ImageData};
 use std::i32;
 use std::time::SystemTime;
@@ -1313,9 +1314,25 @@ impl Camera for QhyccdCamera {
                 debug!("readout speed control not available");
                 ASCOMError::NOT_IMPLEMENTED
             })?;
-        //TODO: need to actually calulate this, check if the actual value comes backk from the
-        //camera, otherwise store it in the driver
-        Ok(true)
+        let speed = self
+            .device
+            .get_parameter(qhyccd_rs::Control::Speed)
+            .map_err(|e| {
+                error!(?e, "failed to get speed value");
+                ASCOMError::UNSPECIFIED
+            })?;
+        let (_min, max, _step) = self
+            .readout_speed_min_max_step
+            .read()
+            .await
+            .ok_or_else(|| {
+                error!("readout speed available, but min, max not set");
+                ASCOMError::UNSPECIFIED
+            })?;
+        if (speed - max).abs() < f64::EPSILON {
+            return Ok(true);
+        };
+        Ok(false)
     }
 
     async fn set_fast_readout(&self, fast_readout: bool) -> ASCOMResult {
