@@ -1202,13 +1202,15 @@ impl Camera for QhyccdCamera {
                 debug!("offset control not available");
                 ASCOMError::NOT_IMPLEMENTED
             })?;
-        match self.device.get_parameter(qhyccd_rs::Control::Offset) {
-            Ok(offset) => Ok(offset as i32),
-            Err(e) => {
-                error!(?e, "failed to set offset");
-                Err(ASCOMError::UNSPECIFIED)
-            }
-        }
+        self.device
+            .get_parameter(qhyccd_rs::Control::Offset)
+            .map_or_else(
+                |e| {
+                    error!(?e, "failed to set offset");
+                    Err(ASCOMError::UNSPECIFIED)
+                },
+                |offset| Ok(offset as i32),
+            )
     }
 
     async fn set_offset(&self, offset: i32) -> ASCOMResult {
@@ -1255,6 +1257,12 @@ impl Camera for QhyccdCamera {
 
     async fn can_fast_readout(&self) -> ASCOMResult<bool> {
         ensure_connected!(self);
+        self.device
+            .is_control_available(qhyccd_rs::Control::Speed)
+            .ok_or_else(|| {
+                debug!("readout speed control not available");
+                ASCOMError::NOT_IMPLEMENTED
+            })?;
         Ok(self.readout_speed_min_max_step.read().await.is_some())
     }
 
