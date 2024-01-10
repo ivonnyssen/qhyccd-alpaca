@@ -444,30 +444,26 @@ impl Camera for QhyccdCamera {
                 ASCOMError::invalid_value("bin value must be one of the valid bins")
             })?;
         let mut lock = self.binning.write().await;
-        match *lock as i32 == bin_x {
-            true => Ok(()),
-            false => {
-                match self.device.set_bin_mode(bin_x as u32, bin_x as u32) {
-                    Ok(_) => {
-                        //adjust start and num values
-                        let old = *lock;
-                        *lock = bin_x as u32;
-                        let mut roi_lock = self.intended_roi.write().await;
-                        *roi_lock = roi_lock.map(|roi| CCDChipArea {
-                            start_x: (roi.start_x as f32 * old as f32 / bin_x as f32) as u32,
-                            start_y: (roi.start_y as f32 * old as f32 / bin_x as f32) as u32,
-                            width: (roi.width as f32 * old as f32 / bin_x as f32) as u32,
-                            height: (roi.height as f32 * old as f32 / bin_x as f32) as u32,
-                        });
-                        Ok(())
-                    }
-                    Err(e) => {
-                        error!(?e, "set_bin_mode failed");
-                        Err(ASCOMError::VALUE_NOT_SET)
-                    }
-                }
-            }
-        }
+        if *lock as i32 == bin_x {
+            return Ok(());
+        };
+        self.device
+            .set_bin_mode(bin_x as u32, bin_x as u32)
+            .map_err(|e| {
+                error!(?e, "set_bin_mode failed");
+                ASCOMError::VALUE_NOT_SET
+            })?;
+        //adjust start and num values
+        let old = *lock;
+        *lock = bin_x as u32;
+        let mut roi_lock = self.intended_roi.write().await;
+        *roi_lock = roi_lock.map(|roi| CCDChipArea {
+            start_x: (roi.start_x as f32 * old as f32 / bin_x as f32) as u32,
+            start_y: (roi.start_y as f32 * old as f32 / bin_x as f32) as u32,
+            width: (roi.width as f32 * old as f32 / bin_x as f32) as u32,
+            height: (roi.height as f32 * old as f32 / bin_x as f32) as u32,
+        });
+        Ok(())
     }
 
     async fn bin_y(&self) -> ASCOMResult<i32> {
@@ -480,18 +476,14 @@ impl Camera for QhyccdCamera {
 
     async fn max_bin_x(&self) -> ASCOMResult<i32> {
         ensure_connected!(self);
-        match self
-            .get_valid_binning_modes()
+        self.get_valid_binning_modes()
             .iter()
             .map(|m| *m as i32)
             .max()
-        {
-            Some(max) => Ok(max),
-            None => {
+            .ok_or_else(|| {
                 error!("valid_binning_modes is empty");
-                Err(ASCOMError::UNSPECIFIED)
-            }
-        }
+                ASCOMError::UNSPECIFIED
+            })
     }
 
     async fn max_bin_y(&self) -> ASCOMResult<i32> {
