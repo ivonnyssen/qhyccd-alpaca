@@ -788,21 +788,17 @@ impl Camera for QhyccdCamera {
                 error!(?e, "get_readout_mode_resolution failed");
                 ASCOMError::INVALID_VALUE
             })?;
-        match self.device.set_readout_mode(readout_mode) {
-            Ok(_) => {
-                let mut lock = self.ccd_info.write().await;
-                *lock = lock.map(|ccd_info| CCDChipInfo {
-                    image_width: width,
-                    image_height: height,
-                    ..ccd_info
-                });
-                Ok(())
-            }
-            Err(e) => {
-                error!(?e, "set_readout_mode failed");
-                return Err(ASCOMError::VALUE_NOT_SET);
-            }
-        }
+        self.device.set_readout_mode(readout_mode).map_err(|e| {
+            error!(?e, "set_readout_mode failed");
+            ASCOMError::VALUE_NOT_SET
+        })?;
+        let mut lock = self.ccd_info.write().await;
+        *lock = lock.map(|ccd_info| CCDChipInfo {
+            image_width: width,
+            image_height: height,
+            ..ccd_info
+        });
+        Ok(())
     }
 
     async fn readout_modes(&self) -> ASCOMResult<Vec<String>> {
@@ -813,13 +809,11 @@ impl Camera for QhyccdCamera {
         })?;
         let mut readout_modes = Vec::with_capacity(number as usize);
         for i in 0..number {
-            match self.device.get_readout_mode_name(i) {
-                Ok(readout_mode) => readout_modes.push(readout_mode),
-                Err(e) => {
-                    error!(?e, "get_readout_mode failed");
-                    return Err(ASCOMError::UNSPECIFIED);
-                }
-            }
+            let readout_mode = self.device.get_readout_mode_name(i).map_err(|e| {
+                error!(?e, "get_readout_mode failed");
+                ASCOMError::UNSPECIFIED
+            })?;
+            readout_modes.push(readout_mode);
         }
         Ok(readout_modes)
     }
