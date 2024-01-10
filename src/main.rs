@@ -1349,33 +1349,33 @@ impl Device for QhyccdFilterWheel {
     }
 
     async fn set_connected(&self, connected: bool) -> ASCOMResult {
-        match self.connected().await? == connected {
-            true => return Ok(()),
-            false => match connected {
-                true => {
-                    self.device.open().map_err(|e| {
-                        error!(?e, "open failed");
-                        ASCOMError::NOT_CONNECTED
-                    })?;
-                    let mut lock = self.number_of_filters.write().await;
-                    let number_of_filters = self.device.get_number_of_filters().map_err(|e| {
-                        error!(?e, "get_number_of_filters failed");
-                        ASCOMError::NOT_CONNECTED
-                    })?;
-                    *lock = Some(number_of_filters);
-                    let mut lock = self.target_position.write().await;
-                    let target_position = self.device.get_fw_position().map_err(|e| {
-                        error!(?e, "get_fw_position failed");
-                        ASCOMError::NOT_CONNECTED
-                    })?;
-                    *lock = Some(target_position);
-                    Ok(())
-                }
-                false => self.device.close().map_err(|e| {
-                    error!(?e, "close_camera failed");
+        if self.connected().await? == connected {
+            return Ok(());
+        };
+        match connected {
+            true => {
+                self.device.open().map_err(|e| {
+                    error!(?e, "open failed");
                     ASCOMError::NOT_CONNECTED
-                }),
-            },
+                })?;
+                let mut lock = self.number_of_filters.write().await;
+                let number_of_filters = self.device.get_number_of_filters().map_err(|e| {
+                    error!(?e, "get_number_of_filters failed");
+                    ASCOMError::NOT_CONNECTED
+                })?;
+                *lock = Some(number_of_filters);
+                let mut lock = self.target_position.write().await;
+                let target_position = self.device.get_fw_position().map_err(|e| {
+                    error!(?e, "get_fw_position failed");
+                    ASCOMError::NOT_CONNECTED
+                })?;
+                *lock = Some(target_position);
+                Ok(())
+            }
+            false => self.device.close().map_err(|e| {
+                error!(?e, "close_camera failed");
+                ASCOMError::NOT_CONNECTED
+            }),
         }
     }
 
