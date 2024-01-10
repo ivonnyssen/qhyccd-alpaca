@@ -201,7 +201,7 @@ impl QhyccdCamera {
         self.device
             .is_control_available(qhyccd_rs::Control::CamSingleFrameMode)
             .ok_or_else(|| {
-                error!("CameraFeature::CamLiveVideoMode is not supported");
+                error!("SingleFrameMode is not avaialble");
                 ASCOMError::NOT_CONNECTED
             })?;
         self.device

@@ -680,6 +680,26 @@ async fn set_connected_fail_open() {
 }
 
 #[tokio::test]
+async fn set_connected_fail_single_frame_mode_available() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_open().once().returning(|| Ok(()));
+    mock.expect_is_control_available()
+        .once()
+        .withf(|control| *control == qhyccd_rs::Control::CamSingleFrameMode)
+        .returning(|_| None);
+    let camera = new_camera(mock, MockCameraType::IsOpenFalse { times: 1 });
+    //when
+    let res = camera.set_connected(true).await;
+    //then
+    assert!(res.is_err());
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::NOT_CONNECTED.to_string()
+    );
+}
+
+#[tokio::test]
 async fn set_connected_fail_set_stream_mode() {
     //given
     let mut mock = MockCamera::new();
@@ -751,6 +771,39 @@ async fn set_connected_fail_init() {
     mock.expect_init()
         .once()
         .returning(|| Err(eyre!("Could not init camera")));
+    let camera = new_camera(mock, MockCameraType::IsOpenFalse { times: 1 });
+    //when
+    let res = camera.set_connected(true).await;
+    //then
+    assert!(res.is_err());
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::NOT_CONNECTED.to_string()
+    );
+}
+
+#[tokio::test]
+async fn set_connected_fail_transferbit_available() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_open().once().returning(|| Ok(()));
+    mock.expect_is_control_available()
+        .once()
+        .withf(|control| *control == qhyccd_rs::Control::CamSingleFrameMode)
+        .returning(|_| Some(0_u32));
+    mock.expect_set_stream_mode()
+        .once()
+        .withf(|mode| *mode == qhyccd_rs::StreamMode::SingleFrameMode)
+        .returning(|_| Ok(()));
+    mock.expect_set_readout_mode()
+        .once()
+        .withf(|mode| *mode == 0)
+        .returning(|_| Ok(()));
+    mock.expect_init().once().returning(|| Ok(()));
+    mock.expect_set_if_available()
+        .once()
+        .withf(|control, bits| *control == qhyccd_rs::Control::TransferBit && *bits == 16_f64)
+        .returning(|_, _| Err(eyre!("Could not set transfer bit")));
     let camera = new_camera(mock, MockCameraType::IsOpenFalse { times: 1 });
     //when
     let res = camera.set_connected(true).await;
@@ -838,6 +891,88 @@ async fn set_connected_fail_get_effective_area() {
     //when
     let res = camera.set_connected(true).await;
     //then
+    assert!(res.is_err());
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::NOT_CONNECTED.to_string()
+    );
+}
+
+#[tokio::test]
+async fn set_connected_fail_get_parameter_min_max_step_speed() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_open().times(1).returning(|| Ok(()));
+    mock.expect_set_stream_mode()
+        .once()
+        .withf(|mode| *mode == qhyccd_rs::StreamMode::SingleFrameMode)
+        .returning(|_| Ok(()));
+    mock.expect_is_control_available()
+        .once()
+        .withf(|control| *control == qhyccd_rs::Control::CamSingleFrameMode)
+        .returning(|_| Some(0_u32));
+    mock.expect_set_if_available()
+        .once()
+        .withf(|control, bits| *control == qhyccd_rs::Control::TransferBit && *bits == 16_f64)
+        .returning(|_, _| Ok(()));
+    mock.expect_set_readout_mode()
+        .once()
+        .withf(|mode| *mode == 0)
+        .returning(|_| Ok(()));
+    mock.expect_init().once().returning(|| Ok(()));
+    mock.expect_get_ccd_info().once().returning(|| {
+        Ok(CCDChipInfo {
+            chip_width: 7.0,
+            chip_height: 5.0,
+            image_width: 1920,
+            image_height: 1080,
+            pixel_width: 2.9,
+            pixel_height: 2.9,
+            bits_per_pixel: 16,
+        })
+    });
+    mock.expect_get_effective_area().times(1).returning(|| {
+        Ok(CCDChipArea {
+            start_x: 0,
+            start_y: 0,
+            width: 100,
+            height: 100,
+        })
+    });
+    mock.expect_is_control_available()
+        .times(6)
+        .withf(|control| {
+            control == &Control::CamBin1x1mode
+                || control == &Control::CamBin2x2mode
+                || control == &Control::CamBin3x3mode
+                || control == &Control::CamBin4x4mode
+                || control == &Control::CamBin6x6mode
+                || control == &Control::CamBin8x8mode
+        })
+        .returning(|control| match control {
+            Control::CamBin1x1mode => Some(0_u32),
+            Control::CamBin2x2mode => Some(0_u32),
+            Control::CamBin3x3mode => Some(0_u32),
+            Control::CamBin4x4mode => Some(0_u32),
+            Control::CamBin6x6mode => Some(0_u32),
+            Control::CamBin8x8mode => Some(0_u32),
+            _ => panic!("Unexpected control"),
+        });
+    mock.expect_is_control_available()
+        .once()
+        .withf(|control| *control == qhyccd_rs::Control::Speed)
+        .returning(|_| Some(0));
+    mock.expect_get_parameter_min_max_step()
+        .once()
+        .withf(|control| *control == qhyccd_rs::Control::Speed)
+        .returning(|_| {
+            Err(eyre!(qhyccd_rs::QHYError::GetMinMaxStepError {
+                control: qhyccd_rs::Control::Exposure
+            }))
+        });
+    let camera = new_camera(mock, MockCameraType::IsOpenFalse { times: 1 });
+    //when
+    let res = camera.set_connected(true).await;
     assert!(res.is_err());
     assert_eq!(
         res.err().unwrap().to_string(),
