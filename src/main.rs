@@ -611,26 +611,26 @@ impl Camera for QhyccdCamera {
 
     async fn camera_xsize(&self) -> ASCOMResult<i32> {
         ensure_connected!(self);
-        match *self.ccd_info.read().await {
-            Some(ccd_info) => Ok(ccd_info.image_width as i32),
-            None => Err(ASCOMError::VALUE_NOT_SET),
-        }
+        self.ccd_info.read().await.map_or_else(
+            || Err(ASCOMError::VALUE_NOT_SET),
+            |ccd_info| Ok(ccd_info.image_width as i32),
+        )
     }
 
     async fn camera_ysize(&self) -> ASCOMResult<i32> {
         ensure_connected!(self);
-        match *self.ccd_info.read().await {
-            Some(ccd_info) => Ok(ccd_info.image_height as i32),
-            None => Err(ASCOMError::VALUE_NOT_SET),
-        }
+        self.ccd_info.read().await.map_or_else(
+            || Err(ASCOMError::VALUE_NOT_SET),
+            |ccd_info| Ok(ccd_info.image_height as i32),
+        )
     }
 
     async fn start_x(&self) -> ASCOMResult<i32> {
         ensure_connected!(self);
-        match *self.intended_roi.read().await {
-            Some(roi) => Ok(roi.start_x as i32),
-            None => Err(ASCOMError::VALUE_NOT_SET),
-        }
+        self.intended_roi.read().await.map_or_else(
+            || Err(ASCOMError::VALUE_NOT_SET),
+            |roi| Ok(roi.start_x as i32),
+        )
     }
 
     async fn set_start_x(&self, start_x: i32) -> ASCOMResult {
@@ -654,10 +654,10 @@ impl Camera for QhyccdCamera {
 
     async fn start_y(&self) -> ASCOMResult<i32> {
         ensure_connected!(self);
-        match *self.intended_roi.read().await {
-            Some(roi) => Ok(roi.start_y as i32),
-            None => Err(ASCOMError::VALUE_NOT_SET),
-        }
+        self.intended_roi.read().await.map_or_else(
+            || Err(ASCOMError::VALUE_NOT_SET),
+            |roi| Ok(roi.start_y as i32),
+        )
     }
 
     async fn set_start_y(&self, start_y: i32) -> ASCOMResult {
@@ -681,10 +681,10 @@ impl Camera for QhyccdCamera {
 
     async fn num_x(&self) -> ASCOMResult<i32> {
         ensure_connected!(self);
-        match *self.intended_roi.read().await {
-            Some(roi) => Ok(roi.width as i32),
-            None => Err(ASCOMError::VALUE_NOT_SET),
-        }
+        self.intended_roi.read().await.map_or_else(
+            || Err(ASCOMError::VALUE_NOT_SET),
+            |roi| Ok(roi.width as i32),
+        )
     }
 
     async fn set_num_x(&self, num_x: i32) -> ASCOMResult {
@@ -708,10 +708,10 @@ impl Camera for QhyccdCamera {
 
     async fn num_y(&self) -> ASCOMResult<i32> {
         ensure_connected!(self);
-        match *self.intended_roi.read().await {
-            Some(roi) => Ok(roi.height as i32),
-            None => Err(ASCOMError::VALUE_NOT_SET),
-        }
+        self.intended_roi.read().await.map_or_else(
+            || Err(ASCOMError::VALUE_NOT_SET),
+            |roi| Ok(roi.height as i32),
+        )
     }
 
     async fn set_num_y(&self, num_y: i32) -> ASCOMResult {
@@ -758,13 +758,13 @@ impl Camera for QhyccdCamera {
 
     async fn readout_mode(&self) -> ASCOMResult<i32> {
         ensure_connected!(self);
-        match self.device.get_readout_mode() {
-            Ok(readout_mode) => Ok(readout_mode as i32),
-            Err(e) => {
+        self.device.get_readout_mode().map_or_else(
+            |e| {
                 error!(?e, "get_readout_mode failed");
                 Err(ASCOMError::UNSPECIFIED)
-            }
-        }
+            },
+            |readout_mode| Ok(readout_mode as i32),
+        )
     }
 
     async fn set_readout_mode(&self, readout_mode: i32) -> ASCOMResult {
