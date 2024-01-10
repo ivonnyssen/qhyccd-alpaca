@@ -1093,43 +1093,24 @@ impl Camera for QhyccdCamera {
     }
 
     async fn set_cooler_on(&self, cooler_on: bool) -> ASCOMResult {
+        if self.cooler_on().await? == cooler_on {
+            return Ok(());
+        }
         match cooler_on {
-            true => {
-                match self.cooler_on().await {
-                    Ok(true) => {
-                        Ok(()) //nothing to do here
-                    }
-                    Ok(false) => self
-                        .device
-                        .set_parameter(qhyccd_rs::Control::ManualPWM, 1_f64 / 100_f64 * 255_f64)
-                        .map_err(|e| {
-                            error!(?e, "error setting cooler power to 1");
-                            ASCOMError::INVALID_OPERATION
-                        }),
-                    Err(e) => {
-                        error!(?e, "could not turn cooler on");
-                        Err(e)
-                    }
-                }
-            }
-            false => {
-                match self.cooler_on().await {
-                    Ok(true) => self
-                        .device
-                        .set_parameter(qhyccd_rs::Control::ManualPWM, 0_f64)
-                        .map_err(|e| {
-                            error!(?e, "error setting cooler power to 0");
-                            ASCOMError::INVALID_OPERATION
-                        }),
-                    Ok(false) => {
-                        Ok(()) //nothing to do here
-                    }
-                    Err(e) => {
-                        error!(?e, "could not turn cooler off");
-                        Err(e)
-                    }
-                }
-            }
+            true => self
+                .device
+                .set_parameter(qhyccd_rs::Control::ManualPWM, 1_f64 / 100_f64 * 255_f64)
+                .map_err(|e| {
+                    error!(?e, "error setting cooler power to 1");
+                    ASCOMError::INVALID_OPERATION
+                }),
+            false => self
+                .device
+                .set_parameter(qhyccd_rs::Control::ManualPWM, 0_f64)
+                .map_err(|e| {
+                    error!(?e, "error setting cooler power to 0");
+                    ASCOMError::INVALID_OPERATION
+                }),
         }
     }
 
@@ -1141,13 +1122,15 @@ impl Camera for QhyccdCamera {
                 debug!("no cooler");
                 ASCOMError::NOT_IMPLEMENTED
             })?;
-        match self.device.get_parameter(qhyccd_rs::Control::CurPWM) {
-            Ok(cooler_power) => Ok(cooler_power / 255_f64 * 100_f64),
-            Err(e) => {
-                error!(?e, "could not get current temperature");
-                Err(ASCOMError::INVALID_VALUE)
-            }
-        }
+        self.device
+            .get_parameter(qhyccd_rs::Control::CurPWM)
+            .map_or_else(
+                |e| {
+                    error!(?e, "could not get current temperature");
+                    Err(ASCOMError::INVALID_VALUE)
+                },
+                |cooler_power| Ok(cooler_power / 255_f64 * 100_f64),
+            )
     }
 
     async fn gain(&self) -> ASCOMResult<i32> {
@@ -1158,13 +1141,15 @@ impl Camera for QhyccdCamera {
                 debug!("gain control not available");
                 ASCOMError::NOT_IMPLEMENTED
             })?;
-        match self.device.get_parameter(qhyccd_rs::Control::Gain) {
-            Ok(gain) => Ok(gain as i32),
-            Err(e) => {
-                error!(?e, "failed to set gain");
-                Err(ASCOMError::UNSPECIFIED)
-            }
-        }
+        self.device
+            .get_parameter(qhyccd_rs::Control::Gain)
+            .map_or_else(
+                |e| {
+                    error!(?e, "failed to set gain");
+                    Err(ASCOMError::UNSPECIFIED)
+                },
+                |gain| Ok(gain as i32),
+            )
     }
 
     async fn set_gain(&self, gain: i32) -> ASCOMResult {
