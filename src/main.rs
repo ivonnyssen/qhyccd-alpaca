@@ -829,16 +829,15 @@ impl Camera for QhyccdCamera {
             error!("CamIsColor not available");
             return Ok(SensorType::Monochrome);
         };
-        match self
-            .device
+        self.device
             .is_control_available(qhyccd_rs::Control::CamColor)
-        {
-            Some(_bayer_id) => Ok(SensorType::RGGB),
-            None => {
-                error!("invalid bayer_id from camera");
-                Err(ASCOMError::INVALID_VALUE)
-            }
-        }
+            .map_or_else(
+                || {
+                    error!("invalid bayer_id from camera");
+                    Err(ASCOMError::INVALID_VALUE)
+                },
+                |_| Ok(SensorType::RGGB),
+            )
     }
 
     #[instrument(level = "trace")]
