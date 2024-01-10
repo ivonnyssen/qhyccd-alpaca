@@ -358,21 +358,19 @@ macro_rules! ensure_connected {
 impl Camera for QhyccdCamera {
     async fn bayer_offset_x(&self) -> ASCOMResult<i32> {
         ensure_connected!(self);
-        if self
-            .device
+        self.device
             .is_control_available(qhyccd_rs::Control::CamIsColor)
-            .is_none()
-        {
-            error!("CamIsColor not available");
-            return Err(ASCOMError::NOT_IMPLEMENTED);
-        };
-        let Some(bayer_id) = self
+            .ok_or_else(|| {
+                error!("CamIsColor not available");
+                ASCOMError::NOT_IMPLEMENTED
+            })?;
+        let bayer_id = self
             .device
             .is_control_available(qhyccd_rs::Control::CamColor)
-        else {
-            error!("invalid bayer_id from camera");
-            return Err(ASCOMError::INVALID_VALUE);
-        };
+            .ok_or_else(|| {
+                error!("invalid bayer_id from camera");
+                ASCOMError::INVALID_VALUE
+            })?;
         // https://www.cloudynights.com/topic/883660-software-relating-to-bayer-patterns/
         match bayer_id.try_into() {
             Ok(qhyccd_rs::BayerMode::GBRG) => Ok(0),
@@ -388,21 +386,19 @@ impl Camera for QhyccdCamera {
 
     async fn bayer_offset_y(&self) -> ASCOMResult<i32> {
         ensure_connected!(self);
-        if self
-            .device
+        self.device
             .is_control_available(qhyccd_rs::Control::CamIsColor)
-            .is_none()
-        {
-            error!("CamIsColor not available");
-            return Err(ASCOMError::NOT_IMPLEMENTED);
-        };
-        let Some(bayer_id) = self
+            .ok_or_else(|| {
+                error!("CamIsColor not available");
+                ASCOMError::NOT_IMPLEMENTED
+            })?;
+        let bayer_id = self
             .device
             .is_control_available(qhyccd_rs::Control::CamColor)
-        else {
-            error!("invalid bayer_id from camera");
-            return Err(ASCOMError::INVALID_VALUE);
-        };
+            .ok_or_else(|| {
+                error!("invalid bayer_id from camera");
+                ASCOMError::INVALID_VALUE
+            })?;
         // https://www.cloudynights.com/topic/883660-software-relating-to-bayer-patterns/
         match bayer_id.try_into() {
             Ok(qhyccd_rs::BayerMode::GBRG) => Ok(1),
@@ -436,19 +432,17 @@ impl Camera for QhyccdCamera {
 
     async fn set_bin_x(&self, bin_x: i32) -> ASCOMResult {
         ensure_connected!(self);
-        match self.valid_bins.read().await.clone() {
-            Some(valid_bins) => {
-                if !valid_bins.iter().any(|bin| *bin as i32 == bin_x) {
-                    return Err(ASCOMError::invalid_value(
-                        "bin value must be one of the valid bins",
-                    ));
-                }
-            }
-            None => {
-                error!("valid_bins not set");
-                return Err(ASCOMError::NOT_CONNECTED);
-            }
-        }
+        let valid_bins = self.valid_bins.read().await.clone().ok_or_else(|| {
+            error!("valid_bins not set");
+            ASCOMError::NOT_CONNECTED
+        })?;
+        valid_bins
+            .iter()
+            .find(|bin| **bin as i32 == bin_x)
+            .ok_or_else(|| {
+                error!("trying to set invalid bin value: {}", bin_x);
+                ASCOMError::invalid_value("bin value must be one of the valid bins")
+            })?;
         let mut lock = self.binning.write().await;
         match *lock as i32 == bin_x {
             true => Ok(()),
