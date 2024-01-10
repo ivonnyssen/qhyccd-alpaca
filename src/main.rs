@@ -941,15 +941,9 @@ impl Camera for QhyccdCamera {
                     }
                 }
             },
-            _ = stop => {
-                match self.device.abort_exposure_and_readout() {
-                    Ok(_) => {},
-                    Err(e) => {
+            _ = stop => self.device.abort_exposure_and_readout().map_err(|e|{
                         error!(?e, "failed to stop exposure: {:?}", e);
-                        return Err(ASCOMError::UNSPECIFIED);
-                    }
-                }
-            }
+                        ASCOMError::UNSPECIFIED })?,
         }
         *lock = State::Idle;
         Ok(())
@@ -992,18 +986,18 @@ impl Camera for QhyccdCamera {
 
     async fn pixel_size_x(&self) -> ASCOMResult<f64> {
         ensure_connected!(self);
-        match *self.ccd_info.read().await {
-            Some(ccd_info) => Ok(ccd_info.pixel_width),
-            None => Err(ASCOMError::VALUE_NOT_SET),
-        }
+        self.ccd_info.read().await.map_or_else(
+            || Err(ASCOMError::VALUE_NOT_SET),
+            |ccd_info| Ok(ccd_info.pixel_width),
+        )
     }
 
     async fn pixel_size_y(&self) -> ASCOMResult<f64> {
         ensure_connected!(self);
-        match *self.ccd_info.read().await {
-            Some(ccd_info) => Ok(ccd_info.pixel_height),
-            None => Err(ASCOMError::VALUE_NOT_SET),
-        }
+        self.ccd_info.read().await.map_or_else(
+            || Err(ASCOMError::VALUE_NOT_SET),
+            |ccd_info| Ok(ccd_info.pixel_height),
+        )
     }
 
     async fn can_get_cooler_power(&self) -> ASCOMResult<bool> {
