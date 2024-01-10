@@ -144,20 +144,17 @@ impl QhyccdCamera {
                     )?;
                     let data: Vec<u8> =
                         image.data[0_usize..image.width as usize * image.height as usize].to_vec();
-                    match Array3::from_shape_vec(
-                        (image.width as usize, image.height as usize, 1),
+                    let array_base = Array3::from_shape_vec(
+                        (image.width as usize, image.height as usize, 1_usize),
                         data,
-                    ) {
-                        Ok(array_base) => {
-                            let mut swapped = array_base;
-                            swapped.swap_axes(0, 1);
-                            Ok(swapped.into())
-                        }
-                        Err(e) => {
-                            error!(?e, "could not transform image");
-                            Err(eyre!(e))
-                        }
-                    }
+                    )
+                    .map_err(|e| {
+                        error!(?e, "could not transform image");
+                        eyre!(e)
+                    })?;
+                    let mut swapped = array_base;
+                    swapped.swap_axes(0, 1);
+                    Ok(swapped.into())
                 }
                 16_u32 => {
                     self.validate_image_data_shape(
@@ -172,20 +169,17 @@ impl QhyccdCamera {
                         .chunks_exact(2)
                         .map(|a| u16::from_ne_bytes([a[0], a[1]]))
                         .collect();
-                    match Array3::from_shape_vec(
-                        (image.height as usize, image.width as usize, 1),
+                    let array_base = Array3::from_shape_vec(
+                        (image.width as usize, image.height as usize, 1_usize),
                         data,
-                    ) {
-                        Ok(array_base) => {
-                            let mut swapped = array_base;
-                            swapped.swap_axes(0, 1);
-                            Ok(swapped.into())
-                        }
-                        Err(e) => {
-                            error!(?e, "could not transform image");
-                            Err(eyre!(e))
-                        }
-                    }
+                    )
+                    .map_err(|e| {
+                        error!(?e, "could not transform image");
+                        eyre!(e)
+                    })?;
+                    let mut swapped = array_base;
+                    swapped.swap_axes(0, 1);
+                    Ok(swapped.into())
                 }
                 other => {
                     error!("unsupported bits_per_pixel {:?}", other);
@@ -325,15 +319,15 @@ impl Device for QhyccdCamera {
     }
 
     async fn set_connected(&self, connected: bool) -> ASCOMResult {
-        match self.connected().await? == connected {
-            true => return Ok(()),
-            false => match connected {
-                true => self.connect().await,
-                false => self.device.close().map_err(|e| {
-                    error!(?e, "close_camera failed");
-                    ASCOMError::NOT_CONNECTED
-                }),
-            },
+        if self.connected().await? == connected {
+            return Ok(());
+        };
+        match connected {
+            true => self.connect().await,
+            false => self.device.close().map_err(|e| {
+                error!(?e, "close_camera failed");
+                ASCOMError::NOT_CONNECTED
+            }),
         }
     }
 
