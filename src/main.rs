@@ -545,16 +545,15 @@ impl Camera for QhyccdCamera {
 
     async fn has_shutter(&self) -> ASCOMResult<bool> {
         ensure_connected!(self);
-        match self
-            .device
+        self.device
             .is_control_available(qhyccd_rs::Control::CamMechanicalShutter)
-        {
-            Some(_) => Ok(true),
-            None => {
-                debug!("no mechanical shutter");
-                Ok(false)
-            }
-        }
+            .map_or_else(
+                || {
+                    debug!("no mechanical shutter");
+                    Ok(false)
+                },
+                |_| Ok(true),
+            )
     }
 
     async fn image_array(&self) -> ASCOMResult<ImageArray> {
@@ -568,10 +567,12 @@ impl Camera for QhyccdCamera {
     async fn image_ready(&self) -> ASCOMResult<bool> {
         ensure_connected!(self);
         match *self.state.read().await {
-            State::Idle => match *self.last_image.read().await {
-                Some(_) => Ok(true),
-                None => Ok(false),
-            },
+            State::Idle => self
+                .last_image
+                .read()
+                .await
+                .clone()
+                .map_or_else(|| Ok(false), |_| Ok(true)),
             State::Exposing { .. } => Ok(false),
         }
     }
@@ -594,19 +595,18 @@ impl Camera for QhyccdCamera {
 
     async fn max_adu(&self) -> ASCOMResult<i32> {
         ensure_connected!(self);
-        match self
-            .device
+        self.device
             .get_parameter(qhyccd_rs::Control::OutputDataActualBits)
-        {
-            Ok(bits) => {
-                debug!(?bits, "ADU");
-                Ok(2_i32.pow(bits as u32))
-            }
-            Err(e) => {
-                error!(?e, "could not get OutputDataActualBits");
-                Err(ASCOMError::VALUE_NOT_SET)
-            }
-        }
+            .map_or_else(
+                |e| {
+                    error!(?e, "could not get OutputDataActualBits");
+                    Err(ASCOMError::VALUE_NOT_SET)
+                },
+                |bits| {
+                    debug!(?bits, "ADU");
+                    Ok(2_i32.pow(bits as u32))
+                },
+            )
     }
 
     async fn camera_xsize(&self) -> ASCOMResult<i32> {
