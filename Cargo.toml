@@ -41,3 +41,4 @@ mediatype = "0.19.16"
 
 [dev-dependencies]
 mockall = { version = "0.12.1", features = [] }
+rstest = "0.18.2"
