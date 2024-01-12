@@ -3348,6 +3348,7 @@ async fn start_exposure_success_no_miri(
 }
 
 #[rustfmt::skip]
+#[allow(clippy::too_many_arguments)]
 #[rstest]
 #[case(true, true, 1, true, 1, true, 1, true, 1, 1, true, "")]
 #[case(false, true, 0, true, 0, true, 0, true, 0, 0, false, "ASCOM error INVALID_VALUE: failed to set ROI")]
@@ -3631,6 +3632,58 @@ async fn set_cooler_on_success_off_to_on() {
     let res = camera.set_cooler_on(true).await;
     //then
     assert!(res.is_ok());
+}
+
+#[rustfmt::skip]
+#[rstest]
+#[case(true, true, true, 0, true, "")]
+#[case(false, false, true, 0, true, "")]
+#[case(true, false, true, 1, true, "")]
+#[case(false, true, true, 1, true, "")]
+#[case(true, false, false, 1, false, "ASCOM error INVALID_OPERATION: The requested operation can not be undertaken at this time")]
+#[case(false, true, false, 1, false, "ASCOM error INVALID_OPERATION: The requested operation can not be undertaken at this time")]
+#[tokio::test]
+async fn set_cooler_on(
+    #[case] is_cooler_on: bool,
+    #[case] cooler_on: bool,
+    #[case] set_manualpwm_ok: bool,
+    #[case] set_manualpwm_times: usize,
+    #[case] expect_ok: bool,
+    #[case] expected_error: &str,
+) {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_is_control_available()
+        .once()
+        .withf(|control| *control == qhyccd_rs::Control::Cooler)
+        .returning(move |_| Some(0));
+    mock.expect_get_parameter()
+        .once()
+        .withf(|control| *control == qhyccd_rs::Control::CurPWM)
+        .returning(move |_| if is_cooler_on { Ok(1_f64) } else { Ok(0_f64) });
+    mock.expect_set_parameter()
+        .times(set_manualpwm_times)
+        .withf(move |control, temp| {
+            *control == qhyccd_rs::Control::ManualPWM
+                && (*temp - if cooler_on { 1_f64 } else { 0_f64 } / 100_f64 * 255_f64).abs()
+                    < f64::EPSILON
+        })
+        .returning(move |_, _| {
+            if set_manualpwm_ok {
+                Ok(())
+            } else {
+                Err(eyre!("error"))
+            }
+        });
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
+    //when
+    let res = camera.set_cooler_on(cooler_on).await;
+    //then
+    if expect_ok {
+        assert!(res.is_ok())
+    } else {
+        assert_eq!(res.err().unwrap().to_string(), expected_error.to_string(),)
+    }
 }
 
 #[tokio::test]
