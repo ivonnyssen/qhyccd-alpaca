@@ -3659,100 +3659,67 @@ async fn set_cooler_on(
         )
     }
 }
-
+#[rstest]
+#[case(true, Ok(25_f64), 1, Ok(25_f64/255_f64*100_f64))]
+#[case(true, Err(eyre!("error")), 1, Err(ASCOMError::INVALID_VALUE))]
+#[case(false, Ok(25_f64), 0, Err(ASCOMError::NOT_IMPLEMENTED))]
 #[tokio::test]
-async fn cooler_power_success() {
+async fn cooler_power(
+    #[case] has_cooler: bool,
+    #[case] get_pwm: Result<f64>,
+    #[case] get_pwm_times: usize,
+    #[case] expected: Result<f64, ASCOMError>,
+) {
     //given
     let mut mock = MockCamera::new();
     mock.expect_is_control_available()
         .once()
         .withf(|control| *control == qhyccd_rs::Control::Cooler)
-        .returning(|_| Some(0));
+        .returning(move |_| if has_cooler { Some(0) } else { None });
     mock.expect_get_parameter()
-        .once()
+        .times(get_pwm_times)
         .withf(|control| *control == qhyccd_rs::Control::CurPWM)
-        .returning(|_| Ok(25_f64));
+        .return_once(move |_| get_pwm);
     let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
     //when
     let res = camera.cooler_power().await;
     //then
-    assert!((res.unwrap() - 25_f64 / 255_f64 * 100_f64).abs() < f64::EPSILON);
+    if res.is_ok() {
+        assert!((res.unwrap() - expected.unwrap()).abs() < f64::EPSILON);
+    } else {
+        assert_eq!(
+            res.err().unwrap().to_string(),
+            expected.err().unwrap().to_string()
+        )
+    }
 }
 
+#[rstest]
+#[case(true, Ok(true))]
+#[case(false, Ok(false))]
 #[tokio::test]
-async fn cooler_power_fail_get_parameter() {
+async fn can_set_ccd_temperature(
+    #[case] has_cooler: bool,
+    #[case] expected: Result<bool, ASCOMError>,
+) {
     //given
     let mut mock = MockCamera::new();
     mock.expect_is_control_available()
         .once()
         .withf(|control| *control == qhyccd_rs::Control::Cooler)
-        .returning(|_| Some(0));
-    mock.expect_get_parameter()
-        .once()
-        .withf(|control| *control == qhyccd_rs::Control::CurPWM)
-        .returning(|_| {
-            Err(eyre!(qhyccd_rs::QHYError::GetParameterError {
-                control: qhyccd_rs::Control::CurPWM,
-            }))
-        });
-    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
-    //when
-    let res = camera.cooler_power().await;
-    //then
-    assert_eq!(
-        res.err().unwrap().to_string(),
-        ASCOMError::INVALID_VALUE.to_string()
-    )
-}
-
-#[tokio::test]
-async fn cooler_power_fail_no_cooler() {
-    //given
-    let mut mock = MockCamera::new();
-    mock.expect_is_control_available()
-        .once()
-        .withf(|control| *control == qhyccd_rs::Control::Cooler)
-        .returning(|_| None);
-    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
-    //when
-    let res = camera.cooler_power().await;
-    //then
-    assert_eq!(
-        res.err().unwrap().to_string(),
-        ASCOMError::NOT_IMPLEMENTED.to_string()
-    )
-}
-
-#[tokio::test]
-async fn can_set_ccd_temperature_success_cooler() {
-    //given
-    let mut mock = MockCamera::new();
-    mock.expect_is_control_available()
-        .once()
-        .withf(|control| *control == qhyccd_rs::Control::Cooler)
-        .returning(|_| Some(0));
+        .returning(move |_| if has_cooler { Some(0) } else { None });
     let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
     //when
     let res = camera.can_set_ccd_temperature().await;
     //then
-    assert!(res.is_ok());
-    assert!(res.unwrap());
-}
-
-#[tokio::test]
-async fn can_set_ccd_temperature_success_no_cooler() {
-    //given
-    let mut mock = MockCamera::new();
-    mock.expect_is_control_available()
-        .once()
-        .withf(|control| *control == qhyccd_rs::Control::Cooler)
-        .returning(|_| None);
-    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
-    //when
-    let res = camera.can_set_ccd_temperature().await;
-    //then
-    assert!(res.is_ok());
-    assert!(!res.unwrap());
+    if res.is_ok() {
+        assert_eq!(res.unwrap(), expected.unwrap());
+    } else {
+        assert_eq!(
+            res.err().unwrap().to_string(),
+            expected.err().unwrap().to_string()
+        )
+    }
 }
 
 #[tokio::test]
