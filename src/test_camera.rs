@@ -3589,51 +3589,6 @@ async fn cooler_on_no_cooler() {
     )
 }
 
-#[tokio::test]
-async fn set_cooler_on_success_on_already_on() {
-    //given
-    let mut mock = MockCamera::new();
-    mock.expect_is_control_available()
-        .once()
-        .withf(|control| *control == qhyccd_rs::Control::Cooler)
-        .returning(|_| Some(0));
-    mock.expect_get_parameter()
-        .once()
-        .withf(|control| *control == qhyccd_rs::Control::CurPWM)
-        .returning(|_| Ok(16_f64));
-    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
-    //when
-    let res = camera.set_cooler_on(true).await;
-    //then
-    assert!(res.is_ok());
-}
-
-#[tokio::test]
-async fn set_cooler_on_success_off_to_on() {
-    //given
-    let mut mock = MockCamera::new();
-    mock.expect_is_control_available()
-        .once()
-        .withf(|control| *control == qhyccd_rs::Control::Cooler)
-        .returning(|_| Some(0));
-    mock.expect_get_parameter()
-        .once()
-        .withf(|control| *control == qhyccd_rs::Control::CurPWM)
-        .returning(|_| Ok(0_f64));
-    mock.expect_set_parameter()
-        .once()
-        .withf(|control, temp| {
-            *control == qhyccd_rs::Control::ManualPWM
-                && (*temp - 1_f64 / 100_f64 * 255_f64).abs() < f64::EPSILON
-        })
-        .returning(|_, _| Ok(()));
-    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
-    //when
-    let res = camera.set_cooler_on(true).await;
-    //then
-    assert!(res.is_ok());
-}
-
 #[rustfmt::skip]
 #[rstest]
 #[case(true, true, true, 0, Ok(()))]
