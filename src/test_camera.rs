@@ -3570,23 +3570,40 @@ async fn pixel_size_y_fail_no_ccd_info() {
     )
 }
 
+#[rstest]
+#[case(true, Ok(1_f64), 1, Ok(true))]
+#[case(true, Ok(0_f64), 1, Ok(false))]
+#[case(true, Err(eyre!("error")), 1, Err(ASCOMError::INVALID_VALUE))]
+#[case(false, Ok(1_f64), 0, Err(ASCOMError::NOT_IMPLEMENTED))]
 #[tokio::test]
-async fn cooler_on_no_cooler() {
+async fn cooler_on(
+    #[case] is_control_available: bool,
+    #[case] get_parameter: Result<f64>,
+    #[case] get_parameter_times: usize,
+    #[case] expected: Result<bool, ASCOMError>,
+) {
     //given
     let mut mock = MockCamera::new();
     mock.expect_is_control_available()
         .once()
         .withf(|control| *control == qhyccd_rs::Control::Cooler)
-        .returning(|_| None);
+        .returning(move |_| if is_control_available { Some(0) } else { None });
+    mock.expect_get_parameter()
+        .times(get_parameter_times)
+        .withf(|control| *control == qhyccd_rs::Control::CurPWM)
+        .return_once(move |_| get_parameter);
     let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
     //when
     let res = camera.cooler_on().await;
     //then
-    assert!(res.is_err());
-    assert_eq!(
-        res.err().unwrap().to_string(),
-        ASCOMError::NOT_IMPLEMENTED.to_string()
-    )
+    if res.is_ok() {
+        assert!(expected.is_ok())
+    } else {
+        assert_eq!(
+            res.err().unwrap().to_string(),
+            expected.err().unwrap().to_string()
+        )
+    }
 }
 
 #[rustfmt::skip]
@@ -3636,7 +3653,10 @@ async fn set_cooler_on(
     if res.is_ok() {
         assert!(expected.is_ok())
     } else {
-        assert_eq!(res.err().unwrap().to_string(), expected.err().unwrap().to_string())
+        assert_eq!(
+            res.err().unwrap().to_string(),
+            expected.err().unwrap().to_string()
+        )
     }
 }
 
