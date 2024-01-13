@@ -3722,68 +3722,39 @@ async fn can_set_ccd_temperature(
     }
 }
 
+#[rstest]
+#[case(true, Ok(25_f64), 1, Ok(25_f64))]
+#[case(true, Err(eyre!("error")), 1, Err(ASCOMError::INVALID_VALUE))]
+#[case(false, Ok(25_f64), 0, Err(ASCOMError::NOT_IMPLEMENTED))]
 #[tokio::test]
-async fn ccd_temperature_success_cooler() {
+async fn ccd_temperature_success_cooler(
+    #[case] has_cooler: bool,
+    #[case] cur_temp: Result<f64>,
+    #[case] cur_temp_times: usize,
+    #[case] expected: Result<f64, ASCOMError>,
+) {
     //given
     let mut mock = MockCamera::new();
     mock.expect_is_control_available()
         .once()
         .withf(|control| *control == qhyccd_rs::Control::Cooler)
-        .returning(|_| Some(0));
+        .returning(move |_| if has_cooler { Some(0) } else { None });
     mock.expect_get_parameter()
-        .once()
+        .times(cur_temp_times)
         .withf(|control| *control == qhyccd_rs::Control::CurTemp)
-        .returning(|_| Ok(25_f64));
+        .return_once(move |_| cur_temp);
     let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
     //when
     let res = camera.ccd_temperature().await;
     //then
-    assert!(res.is_ok());
-    assert!((res.unwrap() - 25_f64).abs() < f64::EPSILON);
-}
-
-#[tokio::test]
-async fn ccd_temperature_fail_get_parameter() {
-    //given
-    let mut mock = MockCamera::new();
-    mock.expect_is_control_available()
-        .once()
-        .withf(|control| *control == qhyccd_rs::Control::Cooler)
-        .returning(|_| Some(0));
-    mock.expect_get_parameter()
-        .once()
-        .withf(|control| *control == qhyccd_rs::Control::CurTemp)
-        .returning(|_| {
-            Err(eyre!(qhyccd_rs::QHYError::GetParameterError {
-                control: qhyccd_rs::Control::CurTemp,
-            }))
-        });
-    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
-    //when
-    let res = camera.ccd_temperature().await;
-    //then
-    assert_eq!(
-        res.err().unwrap().to_string(),
-        ASCOMError::INVALID_VALUE.to_string()
-    )
-}
-
-#[tokio::test]
-async fn ccd_temperature_fail_no_cooler() {
-    //given
-    let mut mock = MockCamera::new();
-    mock.expect_is_control_available()
-        .once()
-        .withf(|control| *control == qhyccd_rs::Control::Cooler)
-        .returning(|_| None);
-    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
-    //when
-    let res = camera.ccd_temperature().await;
-    //then
-    assert_eq!(
-        res.err().unwrap().to_string(),
-        ASCOMError::NOT_IMPLEMENTED.to_string()
-    )
+    if res.is_ok() {
+        assert!((res.unwrap() - expected.unwrap()).abs() < f64::EPSILON);
+    } else {
+        assert_eq!(
+            res.err().unwrap().to_string(),
+            expected.err().unwrap().to_string()
+        )
+    }
 }
 
 #[tokio::test]
