@@ -3636,20 +3636,19 @@ async fn set_cooler_on_success_off_to_on() {
 
 #[rustfmt::skip]
 #[rstest]
-#[case(true, true, true, 0, true, "")]
-#[case(false, false, true, 0, true, "")]
-#[case(true, false, true, 1, true, "")]
-#[case(false, true, true, 1, true, "")]
-#[case(true, false, false, 1, false, "ASCOM error INVALID_OPERATION: The requested operation can not be undertaken at this time")]
-#[case(false, true, false, 1, false, "ASCOM error INVALID_OPERATION: The requested operation can not be undertaken at this time")]
+#[case(true, true, true, 0, Ok(()))]
+#[case(false, false, true, 0, Ok(()))]
+#[case(true, false, true, 1, Ok(()))]
+#[case(false, true, true, 1, Ok(()))]
+#[case(true, false, false, 1, Err(ASCOMError::INVALID_OPERATION))]
+#[case(false, true, false, 1, Err(ASCOMError::INVALID_OPERATION))]
 #[tokio::test]
 async fn set_cooler_on(
     #[case] is_cooler_on: bool,
     #[case] cooler_on: bool,
     #[case] set_manualpwm_ok: bool,
     #[case] set_manualpwm_times: usize,
-    #[case] expect_ok: bool,
-    #[case] expected_error: &str,
+    #[case] expected: Result<(),ASCOMError>,
 ) {
     //given
     let mut mock = MockCamera::new();
@@ -3679,10 +3678,10 @@ async fn set_cooler_on(
     //when
     let res = camera.set_cooler_on(cooler_on).await;
     //then
-    if expect_ok {
-        assert!(res.is_ok())
+    if res.is_ok() {
+        assert!(expected.is_ok())
     } else {
-        assert_eq!(res.err().unwrap().to_string(), expected_error.to_string(),)
+        assert_eq!(res.err().unwrap().to_string(), expected.err().unwrap().to_string())
     }
 }
 
