@@ -122,6 +122,7 @@ enum MockCameraType {
         camera_binning: u32,
     },
     WithBinningAndValidBins {
+        times: usize,
         camera_valid_bins: Vec<u32>,
         camera_binning: u32,
     },
@@ -235,10 +236,11 @@ fn new_camera(mut device: MockCamera, variant: MockCameraType) -> QhyccdCamera {
             binning = RwLock::new(camera_binning);
         }
         MockCameraType::WithBinningAndValidBins {
+            times,
             camera_valid_bins,
             camera_binning,
         } => {
-            device.expect_is_open().once().returning(|| Ok(true));
+            device.expect_is_open().times(times).returning(|| Ok(true));
             valid_bins = RwLock::new(Some(camera_valid_bins));
             binning = RwLock::new(camera_binning);
         }
@@ -777,12 +779,13 @@ async fn sensor_name_success() {
 }
 
 #[tokio::test]
-async fn bin_x_success() {
+async fn bin_x_y_success() {
     //given
     let mock = MockCamera::new();
     let camera = new_camera(
         mock,
         MockCameraType::WithBinningAndValidBins {
+            times: 2,
             camera_valid_bins: { vec![1_u32, 2_u32] },
             camera_binning: 1_u32,
         },
@@ -792,19 +795,7 @@ async fn bin_x_success() {
     //then
     assert!(res.is_ok());
     assert_eq!(res.unwrap(), 1_i32);
-}
 
-#[tokio::test]
-async fn bin_y_success() {
-    //given
-    let mock = MockCamera::new();
-    let camera = new_camera(
-        mock,
-        MockCameraType::WithBinningAndValidBins {
-            camera_valid_bins: { vec![1_u32, 2_u32] },
-            camera_binning: 1_u32,
-        },
-    );
     //when
     let res = camera.bin_y().await;
     //then
@@ -812,46 +803,57 @@ async fn bin_y_success() {
     assert_eq!(res.unwrap(), 1_i32);
 }
 
+#[rstest]
+#[case(1, vec![1, 2], 1, Ok(()), 0, Ok(()))]
+#[case(2, vec![1, 2], 1, Ok(()), 1, Ok(()))]
+#[case(2, vec![1, 2], 1, Err(eyre!("error")), 1, Err(ASCOMError::VALUE_NOT_SET))]
+#[case(0, vec![1, 2], 1, Ok(()), 0, Err(ASCOMError::invalid_value("bin value must be one of the valid bins")))]
 #[tokio::test]
-async fn set_bin_x_success_same_bin() {
-    //given
-    let mock = MockCamera::new();
-    let camera = new_camera(
-        mock,
-        MockCameraType::WithBinningAndValidBins {
-            camera_valid_bins: { vec![1_u32, 2_u32] },
-            camera_binning: 1_u32,
-        },
-    );
-    //when
-    let res = camera.set_bin_x(1).await;
-    //then
-    assert!(res.is_ok());
-}
-
-#[tokio::test]
-async fn set_bin_x_success_different_bin_no_roi_yet() {
+async fn set_bin_x(
+    #[case] bin_x: u32,
+    #[case] camera_valid_bins: Vec<u32>,
+    #[case] camera_binning: u32,
+    #[case] set_bin_mode: Result<()>,
+    #[case] set_bin_mode_times: usize,
+    #[case] expected: ASCOMResult<()>,
+) {
     //given
     let mut mock = MockCamera::new();
     mock.expect_set_bin_mode()
-        .times(1)
-        .withf(|bin_x: &u32, bin_y: &u32| *bin_x == 1 && *bin_y == 1)
-        .returning(|_, _| Ok(()));
+        .times(set_bin_mode_times)
+        .withf(move |x: &u32, y: &u32| *x == bin_x && *y == bin_x)
+        .return_once(move |_, _| set_bin_mode);
     let camera = new_camera(
         mock,
         MockCameraType::WithBinningAndValidBins {
-            camera_valid_bins: { vec![1_u32, 2_u32] },
-            camera_binning: 2_u32,
+            times: 1,
+            camera_valid_bins,
+            camera_binning,
         },
     );
     //when
-    let res = camera.set_bin_x(1).await;
+    let res = camera.set_bin_x(bin_x as i32).await;
     //then
-    assert!(res.is_ok());
+    if expected.is_ok() {
+        assert!(res.is_ok());
+    } else {
+        assert_eq!(
+            expected.unwrap_err().to_string(),
+            res.unwrap_err().to_string()
+        )
+    }
 }
 
+#[rstest]
+#[case(10, 20, 5, 10)]
+#[case(5, 11, 2, 5)]
 #[tokio::test]
-async fn set_bin_x_success_different_bin_with_roi_even() {
+async fn set_bin_x_success_different_bin_with_roi_even(
+    #[case] start_x: u32,
+    #[case] start_y: u32,
+    #[case] expected_start_x: u32,
+    #[case] expected_start_y: u32,
+) {
     //given
     let mut mock = MockCamera::new();
     mock.expect_set_bin_mode()
@@ -863,8 +865,8 @@ async fn set_bin_x_success_different_bin_with_roi_even() {
         MockCameraType::WithBinningAndValidBinsAndRoiAndCCDInfo {
             times: 9,
             camera_roi: CCDChipArea {
-                start_x: 10,
-                start_y: 20,
+                start_x,
+                start_y,
                 width: 1920,
                 height: 1080,
             },
@@ -889,53 +891,8 @@ async fn set_bin_x_success_different_bin_with_roi_even() {
     assert_eq!(camera.camera_ysize().await.unwrap(), 1080_i32);
     assert_eq!(camera.bin_x().await.unwrap(), 2_i32);
     assert_eq!(camera.bin_y().await.unwrap(), 2_i32);
-    assert_eq!(camera.start_x().await.unwrap(), 5_i32);
-    assert_eq!(camera.start_y().await.unwrap(), 10_i32);
-    assert_eq!(camera.num_x().await.unwrap(), 960_i32);
-    assert_eq!(camera.num_y().await.unwrap(), 540_i32);
-}
-
-#[tokio::test]
-async fn set_bin_x_success_different_bin_with_roi_odd() {
-    //given
-    let mut mock = MockCamera::new();
-    mock.expect_set_bin_mode()
-        .times(1)
-        .withf(|bin_x: &u32, bin_y: &u32| *bin_x == 2 && *bin_y == 2)
-        .returning(|_, _| Ok(()));
-    let camera = new_camera(
-        mock,
-        MockCameraType::WithBinningAndValidBinsAndRoiAndCCDInfo {
-            times: 9,
-            camera_roi: CCDChipArea {
-                start_x: 5,
-                start_y: 11,
-                width: 1920,
-                height: 1080,
-            },
-            camera_ccd_info: CCDChipInfo {
-                chip_width: 7_f64,
-                chip_height: 5_f64,
-                image_width: 1920,
-                image_height: 1080,
-                pixel_width: 2.9_f64,
-                pixel_height: 2.9_f64,
-                bits_per_pixel: 16,
-            },
-            camera_binning: 1_u32,
-            camera_valid_bins: { vec![1_u32, 2_u32] },
-        },
-    );
-    //when
-    let res = camera.set_bin_x(2).await;
-    //then
-    assert!(res.is_ok());
-    assert_eq!(camera.camera_xsize().await.unwrap(), 1920_i32);
-    assert_eq!(camera.camera_ysize().await.unwrap(), 1080_i32);
-    assert_eq!(camera.bin_x().await.unwrap(), 2_i32);
-    assert_eq!(camera.bin_y().await.unwrap(), 2_i32);
-    assert_eq!(camera.start_x().await.unwrap(), 2_i32);
-    assert_eq!(camera.start_y().await.unwrap(), 5_i32);
+    assert_eq!(camera.start_x().await.unwrap(), expected_start_x as i32);
+    assert_eq!(camera.start_y().await.unwrap(), expected_start_y as i32);
     assert_eq!(camera.num_x().await.unwrap(), 960_i32);
     assert_eq!(camera.num_y().await.unwrap(), 540_i32);
 }
@@ -968,52 +925,6 @@ async fn set_bin_x_fail_no_valid_bins() {
     assert_eq!(
         res.err().unwrap().to_string(),
         ASCOMError::NOT_CONNECTED.to_string()
-    );
-}
-
-#[tokio::test]
-async fn set_bin_x_fail_set_bin_mode() {
-    //given
-    let mut mock = MockCamera::new();
-    mock.expect_set_bin_mode()
-        .times(1)
-        .withf(|bin_x: &u32, bin_y: &u32| *bin_x == 2 && *bin_y == 2)
-        .returning(|_, _| Err(eyre!("Could not set bin mode")));
-    let camera = new_camera(
-        mock,
-        MockCameraType::WithBinningAndValidBins {
-            camera_valid_bins: { vec![1_u32, 2_u32] },
-            camera_binning: 1_u32,
-        },
-    );
-    //when
-    let res = camera.set_bin_x(2).await;
-    //then
-    assert!(res.is_err());
-    assert_eq!(
-        res.err().unwrap().to_string(),
-        ASCOMError::VALUE_NOT_SET.to_string()
-    );
-}
-
-#[tokio::test]
-async fn set_bin_x_fail_invalid_bin() {
-    //given
-    let mock = MockCamera::new();
-    let camera = new_camera(
-        mock,
-        MockCameraType::WithBinningAndValidBins {
-            camera_valid_bins: { vec![1_u32, 2_u32] },
-            camera_binning: 1_u32,
-        },
-    );
-    //when
-    let res = camera.set_bin_x(0).await;
-    //then
-    assert!(res.is_err());
-    assert_eq!(
-        res.err().unwrap().to_string(),
-        ASCOMError::invalid_value("bin value must be one of the valid bins").to_string()
     );
 }
 
