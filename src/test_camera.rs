@@ -696,229 +696,73 @@ async fn set_connected_true(
     }
 }
 
+#[rstest]
+#[case(Ok(()), Ok(()))]
+#[case(Err(eyre!("error")), Err(ASCOMError::NOT_CONNECTED))]
 #[tokio::test]
-async fn set_connected_false_success() {
+async fn set_connected_false_success(#[case] close: Result<()>, #[case] expected: ASCOMResult) {
     //given
     let mut mock = MockCamera::new();
-    mock.expect_close().times(1).returning(|| Ok(()));
+    mock.expect_close().once().return_once(move || close);
     let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
     //when
     let res = camera.set_connected(false).await;
-    assert!(res.is_ok());
+    if expected.is_ok() {
+        assert!(res.is_ok())
+    } else {
+        assert_eq!(
+            expected.unwrap_err().to_string(),
+            res.unwrap_err().to_string()
+        )
+    }
 }
 
-#[tokio::test]
-async fn set_connected_fail_close() {
-    //given
-    let mut mock = MockCamera::new();
-    mock.expect_close()
-        .times(1)
-        .returning(|| Err(eyre!("Could not close camera")));
-    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
-    //when
-    let res = camera.set_connected(false).await;
-    //then
-    assert!(res.is_err());
-    assert_eq!(
-        res.err().unwrap().to_string(),
-        ASCOMError::NOT_CONNECTED.to_string()
-    );
-}
 // https://www.cloudynights.com/topic/883660-software-relating-to-bayer-patterns/
+#[rustfmt::skip]
+#[rstest]
+#[case(Some(0), Some(qhyccd_rs::BayerMode::GBRG as u32), 2, Ok(0_i32), Ok(1_i32))]
+#[case(Some(0), Some(qhyccd_rs::BayerMode::GRBG as u32), 2, Ok(1_i32), Ok(0_i32))]
+#[case(Some(0), Some(qhyccd_rs::BayerMode::BGGR as u32), 2, Ok(1_i32), Ok(1_i32))]
+#[case(Some(0), Some(qhyccd_rs::BayerMode::RGGB as u32), 2, Ok(0_i32), Ok(0_i32))]
+#[case(None, Some(qhyccd_rs::BayerMode::RGGB as u32), 0, Err(ASCOMError::NOT_IMPLEMENTED), Err(ASCOMError::NOT_IMPLEMENTED))]
+#[case(Some(0), Some(0_u32), 2, Err(ASCOMError::INVALID_VALUE), Err(ASCOMError::INVALID_VALUE))]
+#[case(Some(0), None, 2, Err(ASCOMError::INVALID_VALUE), Err(ASCOMError::INVALID_VALUE))]
 #[tokio::test]
-async fn bayer_offset_success_gbrg() {
+async fn bayer_offset(
+    #[case] cam_is_color: Option<u32>,
+    #[case] cam_color: Option<u32>,
+    #[case] cam_color_times: usize,
+    #[case] expected_x: ASCOMResult<i32>,
+    #[case] expected_y: ASCOMResult<i32>,
+) {
     //given
     let mut mock = MockCamera::new();
     mock.expect_is_control_available()
         .times(2)
-        .withf(|control| *control == qhyccd_rs::Control::CamIsColor)
-        .returning(|_| Some(0));
+        .withf(move |control| *control == qhyccd_rs::Control::CamIsColor)
+        .returning(move |_| cam_is_color);
     mock.expect_is_control_available()
-        .times(2)
-        .withf(|control| *control == qhyccd_rs::Control::CamColor)
-        .returning(|_| Some(qhyccd_rs::BayerMode::GBRG as u32));
+        .times(cam_color_times)
+        .withf(move |control| *control == qhyccd_rs::Control::CamColor)
+        .returning(move |_| cam_color);
     let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 2 });
     //when
-    let res = camera.bayer_offset_x().await;
+    let res_x = camera.bayer_offset_x().await;
+    let res_y = camera.bayer_offset_y().await;
     //then
-    assert!(res.is_ok());
-    assert_eq!(res.unwrap(), 0_i32);
-
-    //when
-    let res = camera.bayer_offset_y().await;
-    //then
-    assert!(res.is_ok());
-    assert_eq!(res.unwrap(), 1_i32);
-}
-
-#[tokio::test]
-async fn bayer_offset_success_grbg() {
-    //given
-    let mut mock = MockCamera::new();
-    mock.expect_is_control_available()
-        .times(2)
-        .withf(|control| *control == qhyccd_rs::Control::CamIsColor)
-        .returning(|_| Some(0));
-    mock.expect_is_control_available()
-        .times(2)
-        .withf(|control| *control == qhyccd_rs::Control::CamColor)
-        .returning(|_| Some(qhyccd_rs::BayerMode::GRBG as u32));
-    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 2 });
-    //when
-    let res = camera.bayer_offset_x().await;
-    //then
-    assert!(res.is_ok());
-    assert_eq!(res.unwrap(), 1_i32);
-
-    //when
-    let res = camera.bayer_offset_y().await;
-    //then
-    assert!(res.is_ok());
-    assert_eq!(res.unwrap(), 0_i32);
-}
-
-#[tokio::test]
-async fn bayer_offset_success_bggr() {
-    //given
-    let mut mock = MockCamera::new();
-    mock.expect_is_control_available()
-        .times(2)
-        .withf(|control| *control == qhyccd_rs::Control::CamIsColor)
-        .returning(|_| Some(0));
-    mock.expect_is_control_available()
-        .times(2)
-        .withf(|control| *control == qhyccd_rs::Control::CamColor)
-        .returning(|_| Some(qhyccd_rs::BayerMode::BGGR as u32));
-    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 2 });
-    //when
-    let res = camera.bayer_offset_x().await;
-    //then
-    assert!(res.is_ok());
-    assert_eq!(res.unwrap(), 1_i32);
-
-    //when
-    let res = camera.bayer_offset_y().await;
-    //then
-    assert!(res.is_ok());
-    assert_eq!(res.unwrap(), 1_i32);
-}
-
-#[tokio::test]
-async fn bayer_offset_success_rggb() {
-    //given
-    let mut mock = MockCamera::new();
-    mock.expect_is_control_available()
-        .times(2)
-        .withf(|control| *control == qhyccd_rs::Control::CamIsColor)
-        .returning(|_| Some(0));
-    mock.expect_is_control_available()
-        .times(2)
-        .withf(|control| *control == qhyccd_rs::Control::CamColor)
-        .returning(|_| Some(qhyccd_rs::BayerMode::RGGB as u32));
-    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 2 });
-    //when
-    let res = camera.bayer_offset_x().await;
-    //then
-    assert!(res.is_ok());
-    assert_eq!(res.unwrap(), 0_i32);
-
-    //when
-    let res = camera.bayer_offset_y().await;
-    //then
-    assert!(res.is_ok());
-    assert_eq!(res.unwrap(), 0_i32);
-}
-
-#[tokio::test]
-async fn bayer_offset_success_monochrome() {
-    //given
-    let mut mock = MockCamera::new();
-    mock.expect_is_control_available()
-        .times(2)
-        .withf(|control| *control == qhyccd_rs::Control::CamIsColor)
-        .returning(|_| None);
-    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 2 });
-    //when
-    let res = camera.bayer_offset_x().await;
-    //then
-    assert!(res.is_err());
-    assert_eq!(
-        res.err().unwrap().to_string(),
-        ASCOMError::NOT_IMPLEMENTED.to_string()
-    );
-
-    //when
-    let res = camera.bayer_offset_y().await;
-    //then
-    assert!(res.is_err());
-    assert_eq!(
-        res.err().unwrap().to_string(),
-        ASCOMError::NOT_IMPLEMENTED.to_string()
-    );
-}
-
-#[tokio::test]
-async fn bayer_offset_fail_invalid_bayer_mode() {
-    //given
-    let mut mock = MockCamera::new();
-    mock.expect_is_control_available()
-        .times(2)
-        .withf(|control| *control == qhyccd_rs::Control::CamIsColor)
-        .returning(|_| Some(0));
-    mock.expect_is_control_available()
-        .times(2)
-        .withf(|control| *control == qhyccd_rs::Control::CamColor)
-        .returning(|_| Some(0));
-    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 2 });
-    //when
-    let res = camera.bayer_offset_x().await;
-    //then
-    assert!(res.is_err());
-    assert_eq!(
-        res.err().unwrap().to_string(),
-        ASCOMError::INVALID_VALUE.to_string()
-    );
-
-    //when
-    let res = camera.bayer_offset_y().await;
-    //then
-    assert!(res.is_err());
-    assert_eq!(
-        res.err().unwrap().to_string(),
-        ASCOMError::INVALID_VALUE.to_string()
-    );
-}
-
-#[tokio::test]
-async fn bayer_offset_fail_none() {
-    //given
-    let mut mock = MockCamera::new();
-    mock.expect_is_control_available()
-        .times(2)
-        .withf(|control| *control == qhyccd_rs::Control::CamIsColor)
-        .returning(|_| Some(0));
-    mock.expect_is_control_available()
-        .times(2)
-        .withf(|control| *control == qhyccd_rs::Control::CamColor)
-        .returning(|_| None);
-    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 2 });
-    //when
-    let res = camera.bayer_offset_x().await;
-    //then
-    assert!(res.is_err());
-    assert_eq!(
-        res.err().unwrap().to_string(),
-        ASCOMError::INVALID_VALUE.to_string()
-    );
-
-    //when
-    let res = camera.bayer_offset_y().await;
-    //then
-    assert!(res.is_err());
-    assert_eq!(
-        res.err().unwrap().to_string(),
-        ASCOMError::INVALID_VALUE.to_string()
-    );
+    if expected_x.is_ok() {
+        assert_eq!(res_x.unwrap(), expected_x.unwrap());
+        assert_eq!(res_y.unwrap(), expected_y.unwrap());
+    } else {
+        assert_eq!(
+            expected_x.unwrap_err().to_string(),
+            res_x.unwrap_err().to_string()
+        );
+        assert_eq!(
+            expected_y.unwrap_err().to_string(),
+            res_y.unwrap_err().to_string()
+        )
+    }
 }
 
 #[tokio::test]
