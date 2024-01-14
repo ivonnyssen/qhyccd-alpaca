@@ -1657,118 +1657,74 @@ async fn percent_completed(
     }
 }
 
+#[rstest]
+#[case(Ok(2), Ok(2_i32))]
+#[case(Err(eyre!("error")), Err(ASCOMError::UNSPECIFIED))]
 #[tokio::test]
-async fn readout_mode_success() {
-    //given
-    let mut mock = MockCamera::new();
-    mock.expect_get_readout_mode().once().returning(|| Ok(2));
-    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
-    //when
-    let res = camera.readout_mode().await;
-    //then
-    assert_eq!(res.unwrap(), 2_i32);
-}
-
-#[tokio::test]
-async fn readout_mode_fail_get_readout_mode() {
+async fn readout_mode_success(
+    #[case] readout_mode: Result<u32>,
+    #[case] expected: ASCOMResult<i32>,
+) {
     //given
     let mut mock = MockCamera::new();
     mock.expect_get_readout_mode()
         .once()
-        .returning(|| Err(eyre!(qhyccd_rs::QHYError::GetReadoutModeError {})));
+        .return_once(move || readout_mode);
     let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
     //when
     let res = camera.readout_mode().await;
     //then
-    assert_eq!(
-        res.err().unwrap().to_string(),
-        ASCOMError::UNSPECIFIED.to_string(),
-    )
+    if expected.is_ok() {
+        assert_eq!(res.unwrap(), expected.unwrap());
+    } else {
+        assert_eq!(
+            expected.clone().unwrap_err().to_string(),
+            res.unwrap_err().to_string()
+        );
+    }
 }
 
+#[rstest]
+#[case(3, Ok(4_u32), Ok((1920_u32, 1080_u32)), 1, Ok(()), 1, Ok(()))]
+#[case(5, Ok(4_u32), Ok((1920_u32, 1080_u32)), 0, Ok(()), 0, Err(ASCOMError::INVALID_VALUE))]
+#[case(3, Err(eyre!("error")), Ok((1920_u32, 1080_u32)), 0, Ok(()), 0, Err(ASCOMError::INVALID_VALUE))]
+#[case(3, Ok(4_u32), Err(eyre!("error")), 1, Ok(()), 0, Err(ASCOMError::INVALID_VALUE))]
+#[case(3, Ok(4_u32), Ok((1920_u32, 1080_u32)), 1, Err(eyre!("error")), 1, Err(ASCOMError::VALUE_NOT_SET))]
 #[tokio::test]
-async fn set_readout_mode_success() {
+async fn set_readout_mode(
+    #[case] mode: i32,
+    #[case] number_of_readout_modes: Result<u32>,
+    #[case] resolution: Result<(u32, u32)>,
+    #[case] resolution_times: usize,
+    #[case] set_mode: Result<()>,
+    #[case] set_mode_times: usize,
+    #[case] expected: ASCOMResult<()>,
+) {
     //given
     let mut mock = MockCamera::new();
     mock.expect_get_number_of_readout_modes()
         .once()
-        .returning(|| Ok(4_u32));
+        .return_once(move || number_of_readout_modes);
     mock.expect_get_readout_mode_resolution()
-        .once()
-        .withf(|readout_mode| *readout_mode == 3)
-        .returning(|_| Ok((1920_u32, 1080_u32)));
+        .times(resolution_times)
+        .withf(move |readout_mode| *readout_mode == 3)
+        .return_once(move |_| resolution);
     mock.expect_set_readout_mode()
-        .once()
-        .withf(|readout_mode| *readout_mode == 3)
-        .returning(|_| Ok(()));
+        .times(set_mode_times)
+        .withf(move |readout_mode| *readout_mode == 3)
+        .return_once(|_| set_mode);
     let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
     //when
-    let res = camera.set_readout_mode(3_i32).await;
+    let res = camera.set_readout_mode(mode).await;
     //then
-    assert!(res.is_ok());
-}
-
-#[tokio::test]
-async fn set_readout_mode_fail_invalid_readout_mode() {
-    //given
-    let mut mock = MockCamera::new();
-    mock.expect_get_number_of_readout_modes()
-        .once()
-        .returning(|| Ok(4_u32));
-    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
-    //when
-    let res = camera.set_readout_mode(5_i32).await;
-    //then
-    assert_eq!(
-        res.err().unwrap().to_string(),
-        ASCOMError::INVALID_VALUE.to_string(),
-    )
-}
-
-#[tokio::test]
-async fn set_readout_mode_fail_get_number_of_readout_modes() {
-    //given
-    let mut mock = MockCamera::new();
-    mock.expect_get_number_of_readout_modes()
-        .once()
-        .returning(|| Err(eyre!(qhyccd_rs::QHYError::GetNumberOfReadoutModesError)));
-    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
-    //when
-    let res = camera.set_readout_mode(5_i32).await;
-    //then
-    assert_eq!(
-        res.err().unwrap().to_string(),
-        ASCOMError::INVALID_VALUE.to_string(),
-    )
-}
-
-#[tokio::test]
-async fn set_readout_mode_fail_set_readout_mode() {
-    //given
-    let mut mock = MockCamera::new();
-    mock.expect_get_number_of_readout_modes()
-        .once()
-        .returning(|| Ok(4_u32));
-    mock.expect_get_readout_mode_resolution()
-        .once()
-        .withf(|readout_mode| *readout_mode == 3)
-        .returning(|_| Ok((1920_u32, 1080_u32)));
-    mock.expect_set_readout_mode()
-        .once()
-        .withf(|readout_mode| *readout_mode == 3)
-        .returning(|_| {
-            Err(eyre!(qhyccd_rs::QHYError::SetReadoutModeError {
-                error_code: 123
-            }))
-        });
-    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
-    //when
-    let res = camera.set_readout_mode(3_i32).await;
-    //then
-    assert_eq!(
-        res.err().unwrap().to_string(),
-        ASCOMError::VALUE_NOT_SET.to_string(),
-    )
+    if expected.is_ok() {
+        assert!(res.is_ok());
+    } else {
+        assert_eq!(
+            expected.clone().unwrap_err().to_string(),
+            res.unwrap_err().to_string()
+        );
+    }
 }
 
 #[tokio::test]
