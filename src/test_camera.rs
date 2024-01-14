@@ -1781,60 +1781,39 @@ async fn readout_modes(
     }
 }
 
+#[rstest]
+#[case(Some(0), Some(1), 1, Ok(SensorType::RGGB))]
+#[case(None, Some(1), 0, Ok(SensorType::Monochrome))]
+#[case(Some(0), None, 1, Err(ASCOMError::INVALID_VALUE))]
 #[tokio::test]
-async fn sensor_type_success_color() {
+async fn sensor_type_success_color(
+    #[case] cam_is_color: Option<u32>,
+    #[case] cam_color: Option<u32>,
+    #[case] cam_color_times: usize,
+    #[case] expected: ASCOMResult<SensorType>,
+) {
     //given
     let mut mock = MockCamera::new();
     mock.expect_is_control_available()
         .once()
-        .withf(|control| *control == qhyccd_rs::Control::CamIsColor)
-        .returning(|_| Some(0));
+        .withf(move |control| *control == qhyccd_rs::Control::CamIsColor)
+        .return_once(move |_| cam_is_color);
     mock.expect_is_control_available()
-        .once()
-        .withf(|control| *control == qhyccd_rs::Control::CamColor)
-        .returning(|_| Some(1));
+        .times(cam_color_times)
+        .withf(move |control| *control == qhyccd_rs::Control::CamColor)
+        .return_once(move |_| cam_color);
     let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
     //when
     let res = camera.sensor_type().await;
     //then
-    assert_eq!(res.unwrap(), SensorType::RGGB);
-}
-
-#[tokio::test]
-async fn sensor_type_success_monochrome() {
-    //given
-    let mut mock = MockCamera::new();
-    mock.expect_is_control_available()
-        .once()
-        .withf(|control| *control == qhyccd_rs::Control::CamIsColor)
-        .returning(|_| None);
-    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
-    //when
-    let res = camera.sensor_type().await;
-    //then
-    assert_eq!(res.unwrap(), SensorType::Monochrome);
-}
-
-#[tokio::test]
-async fn sensor_type_fail_cam_color_error() {
-    //given
-    let mut mock = MockCamera::new();
-    mock.expect_is_control_available()
-        .once()
-        .withf(|control| *control == qhyccd_rs::Control::CamIsColor)
-        .returning(|_| Some(0));
-    mock.expect_is_control_available()
-        .once()
-        .withf(|control| *control == qhyccd_rs::Control::CamColor)
-        .returning(|_| None);
-    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
-    //when
-    let res = camera.sensor_type().await;
-    //then
-    assert_eq!(
-        res.err().unwrap().to_string(),
-        ASCOMError::INVALID_VALUE.to_string(),
-    )
+    if expected.is_ok() {
+        assert!(res.is_ok());
+    } else {
+        assert_eq!(
+            expected.clone().unwrap_err().to_string(),
+            res.unwrap_err().to_string()
+        );
+    }
 }
 
 #[tokio::test]
@@ -1846,67 +1825,49 @@ async fn stop_abort() {
     assert!(camera.can_abort_exposure().await.unwrap());
 }
 
+#[rstest]
+#[case(Ok(()), Ok(()))]
+#[case(Err(eyre!("error")), Err(ASCOMError::UNSPECIFIED))]
 #[tokio::test]
-async fn abort_exposure() {
+async fn abort_exposure(#[case] readout: Result<()>, #[case] expected: ASCOMResult<()>) {
     //given
     let mut mock = MockCamera::new();
     mock.expect_abort_exposure_and_readout()
         .once()
-        .returning(|| Ok(()));
+        .return_once(move || readout);
     let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
     //when
     let res = camera.abort_exposure().await;
     //then
-    assert!(res.is_ok());
+    if expected.is_ok() {
+        assert!(res.is_ok());
+    } else {
+        assert_eq!(
+            expected.clone().unwrap_err().to_string(),
+            res.unwrap_err().to_string()
+        );
+    }
 }
 
+#[rustfmt::skip]
+#[rstest]
+#[case(-1_f64, true, Err(ASCOMError::invalid_value("duration must be >= 0")))]
+#[case(10_f64, false, Err(ASCOMError::invalid_operation("dark frames not supported")))]
 #[tokio::test]
-async fn abort_exposure_fail_abort_exposure_and_readout() {
-    //given
-    let mut mock = MockCamera::new();
-    mock.expect_abort_exposure_and_readout()
-        .once()
-        .returning(|| {
-            Err(eyre!(qhyccd_rs::QHYError::AbortExposureAndReadoutError {
-                error_code: 123
-            }))
-        });
-    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
-    //when
-    let res = camera.abort_exposure().await;
-    //then
-    assert_eq!(
-        res.err().unwrap().to_string(),
-        ASCOMError::UNSPECIFIED.to_string(),
-    )
-}
-
-#[tokio::test]
-async fn start_exposure_fail_negative_exposure() {
+async fn start_exposure_fail(
+    #[case] duration: f64,
+    #[case] is_dark: bool,
+    #[case] expected: ASCOMResult<()>,
+) {
     //given
     let mock = MockCamera::new();
     let camera = new_camera(mock, MockCameraType::Untouched);
     //when
-    let res = camera.start_exposure(-1000_f64, true).await;
+    let res = camera.start_exposure(duration, is_dark).await;
     //then
     assert_eq!(
-        res.err().unwrap().to_string(),
-        ASCOMError::invalid_value("duration must be >= 0").to_string(),
-    )
-}
-
-#[tokio::test]
-async fn start_exposure_fail_dark_exposure() {
-    //given
-    let mock = MockCamera::new();
-    let camera = new_camera(mock, MockCameraType::Untouched);
-    //when
-    let res = camera.start_exposure(1000_f64, false).await;
-    //then
-    assert!(res.is_err());
-    assert_eq!(
-        res.err().unwrap().to_string(),
-        ASCOMError::invalid_operation("dark frames not supported").to_string(),
+        res.unwrap_err().to_string(),
+        expected.unwrap_err().to_string(),
     )
 }
 
