@@ -1685,11 +1685,12 @@ async fn readout_mode_success(
 }
 
 #[rstest]
-#[case(3, Ok(4_u32), Ok((1920_u32, 1080_u32)), 1, Ok(()), 1, Ok(()))]
-#[case(5, Ok(4_u32), Ok((1920_u32, 1080_u32)), 0, Ok(()), 0, Err(ASCOMError::INVALID_VALUE))]
-#[case(3, Err(eyre!("error")), Ok((1920_u32, 1080_u32)), 0, Ok(()), 0, Err(ASCOMError::INVALID_VALUE))]
-#[case(3, Ok(4_u32), Err(eyre!("error")), 1, Ok(()), 0, Err(ASCOMError::INVALID_VALUE))]
-#[case(3, Ok(4_u32), Ok((1920_u32, 1080_u32)), 1, Err(eyre!("error")), 1, Err(ASCOMError::VALUE_NOT_SET))]
+#[case(3, Ok(4_u32), Ok((1920_u32, 1080_u32)), 1, Ok(()), 1, true, Ok(()))]
+#[case(3, Ok(4_u32), Ok((1920_u32, 1080_u32)), 1, Ok(()), 1, false, Ok(()))]
+#[case(5, Ok(4_u32), Ok((1920_u32, 1080_u32)), 0, Ok(()), 0, true, Err(ASCOMError::INVALID_VALUE))]
+#[case(3, Err(eyre!("error")), Ok((1920_u32, 1080_u32)), 0, Ok(()), 0, true, Err(ASCOMError::INVALID_VALUE))]
+#[case(3, Ok(4_u32), Err(eyre!("error")), 1, Ok(()), 0, true, Err(ASCOMError::INVALID_VALUE))]
+#[case(3, Ok(4_u32), Ok((1920_u32, 1080_u32)), 1, Err(eyre!("error")), 1, true, Err(ASCOMError::VALUE_NOT_SET))]
 #[tokio::test]
 async fn set_readout_mode(
     #[case] mode: i32,
@@ -1698,6 +1699,7 @@ async fn set_readout_mode(
     #[case] resolution_times: usize,
     #[case] set_mode: Result<()>,
     #[case] set_mode_times: usize,
+    #[case] has_ccd_info: bool,
     #[case] expected: ASCOMResult<()>,
 ) {
     //given
@@ -1713,7 +1715,25 @@ async fn set_readout_mode(
         .times(set_mode_times)
         .withf(move |readout_mode| *readout_mode == 3)
         .return_once(|_| set_mode);
-    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
+    let camera = new_camera(
+        mock,
+        MockCameraType::WithCCDInfo {
+            times: 1,
+            camera_ccd_info: if has_ccd_info {
+                Some(CCDChipInfo {
+                    chip_width: 7.0,
+                    chip_height: 5.0,
+                    image_width: 1920,
+                    image_height: 1080,
+                    pixel_width: 2.9,
+                    pixel_height: 2.9,
+                    bits_per_pixel: 16,
+                })
+            } else {
+                None
+            },
+        },
+    );
     //when
     let res = camera.set_readout_mode(mode).await;
     //then
