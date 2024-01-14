@@ -361,12 +361,15 @@ async fn qhyccd_camera() {
     );
 }
 
+#[rstest]
+#[case(true, Ok(8))]
+#[case(false, Err(ASCOMError::UNSPECIFIED))]
 #[tokio::test]
-async fn max_bin_x_success() {
+async fn max_bin_x(#[case] has_modes: bool, #[case] expected: ASCOMResult<i32>) {
     //given
     let mut mock = MockCamera::new();
     mock.expect_is_control_available()
-        .times(12)
+        .times(6)
         .withf(|control| {
             control == &Control::CamBin1x1mode
                 || control == &Control::CamBin2x2mode
@@ -375,42 +378,33 @@ async fn max_bin_x_success() {
                 || control == &Control::CamBin6x6mode
                 || control == &Control::CamBin8x8mode
         })
-        .returning(|control| match control {
-            Control::CamBin1x1mode => Some(0_u32),
-            Control::CamBin2x2mode => Some(0_u32),
-            Control::CamBin3x3mode => Some(0_u32),
-            Control::CamBin4x4mode => Some(0_u32),
-            Control::CamBin6x6mode => Some(0_u32),
-            Control::CamBin8x8mode => Some(0_u32),
-            _ => panic!("Unexpected control"),
+        .returning(move |control| {
+            if has_modes {
+                match control {
+                    Control::CamBin1x1mode => Some(0_u32),
+                    Control::CamBin2x2mode => Some(0_u32),
+                    Control::CamBin3x3mode => Some(0_u32),
+                    Control::CamBin4x4mode => Some(0_u32),
+                    Control::CamBin6x6mode => Some(0_u32),
+                    Control::CamBin8x8mode => Some(0_u32),
+                    _ => panic!("Unexpected control"),
+                }
+            } else {
+                None
+            }
         });
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
     //when
-    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 2 });
+    let res = camera.max_bin_x().await;
     //then
-    assert_eq!(camera.max_bin_x().await.unwrap(), 8);
-    assert_eq!(camera.max_bin_y().await.unwrap(), 8);
-}
-
-#[tokio::test]
-async fn max_bin_x_fail_no_modes() {
-    //given
-    let mut mock = MockCamera::new();
-    mock.expect_is_control_available()
-        .times(12)
-        .withf(|control| {
-            control == &Control::CamBin1x1mode
-                || control == &Control::CamBin2x2mode
-                || control == &Control::CamBin3x3mode
-                || control == &Control::CamBin4x4mode
-                || control == &Control::CamBin6x6mode
-                || control == &Control::CamBin8x8mode
-        })
-        .returning(|_| None);
-    //when
-    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 2 });
-    //then
-    assert!(camera.max_bin_x().await.is_err());
-    assert!(camera.max_bin_y().await.is_err());
+    if expected.is_ok() {
+        assert_eq!(res.unwrap(), expected.unwrap());
+    } else {
+        assert_eq!(
+            res.unwrap_err().to_string(),
+            expected.unwrap_err().to_string()
+        );
+    }
 }
 
 #[tokio::test]
