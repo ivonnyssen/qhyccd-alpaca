@@ -144,8 +144,7 @@ enum MockCameraType {
     },
     WithGain {
         times: usize,
-        gain_min: f64,
-        gain_max: f64,
+        min_max: Option<(f64, f64)>,
     },
     WithOffset {
         times: usize,
@@ -272,13 +271,9 @@ fn new_camera(mut device: MockCamera, variant: MockCameraType) -> QhyccdCamera {
             device.expect_is_open().times(times).returning(|| Ok(true));
             target_temperature = RwLock::new(temperature);
         }
-        MockCameraType::WithGain {
-            times,
-            gain_min,
-            gain_max,
-        } => {
+        MockCameraType::WithGain { times, min_max } => {
             device.expect_is_open().times(times).returning(|| Ok(true));
-            gain_min_max = RwLock::new(Some((gain_min, gain_max)));
+            gain_min_max = RwLock::new(min_max);
         }
         MockCameraType::WithOffset { times, min_max } => {
             device.expect_is_open().times(times).returning(|| Ok(true));
@@ -3601,7 +3596,6 @@ async fn cooler_on(
     }
 }
 
-#[rustfmt::skip]
 #[rstest]
 #[case(true, true, true, 0, Ok(()))]
 #[case(false, false, true, 0, Ok(()))]
@@ -3615,7 +3609,7 @@ async fn set_cooler_on(
     #[case] cooler_on: bool,
     #[case] set_manualpwm_ok: bool,
     #[case] set_manualpwm_times: usize,
-    #[case] expected: Result<(),ASCOMError>,
+    #[case] expected: Result<(), ASCOMError>,
 ) {
     //given
     let mut mock = MockCamera::new();
@@ -3654,6 +3648,7 @@ async fn set_cooler_on(
         )
     }
 }
+
 #[rstest]
 #[case(true, Ok(25_f64), 1, Ok(25_f64/255_f64*100_f64))]
 #[case(true, Err(eyre!("error")), 1, Err(ASCOMError::INVALID_VALUE))]
@@ -3796,352 +3791,200 @@ async fn set_ccd_temperature(
         )
     }
 }
+
+#[rstest]
+#[case(true, 1, 1, -2_f64, Ok(()), 1, Ok(()))]
+#[case(true, 0, 0, -300_f64, Ok(()), 0, Err(ASCOMError::INVALID_VALUE))]
+#[case(true, 0, 0, 81_f64, Ok(()), 0, Err(ASCOMError::INVALID_VALUE))]
+#[case(true, 1, 1, -2_f64, Err(eyre!("error")), 1, Err(ASCOMError::UNSPECIFIED))]
+#[case(false, 1, 1, -2_f64, Ok(()), 0, Err(ASCOMError::NOT_IMPLEMENTED))]
 #[tokio::test]
-async fn set_set_ccd_temperature_success() {
+async fn set_set_ccd_temperature(
+    #[case] has_cooler: bool,
+    #[case] is_control_avaiable_times: usize,
+    #[case] is_open_times: usize,
+    #[case] temperature: f64,
+    #[case] set_parameter: Result<()>,
+    #[case] set_parameter_times: usize,
+    #[case] expected: Result<(), ASCOMError>,
+) {
     //given
     let mut mock = MockCamera::new();
     mock.expect_is_control_available()
-        .once()
+        .times(is_control_avaiable_times)
         .withf(|control| *control == qhyccd_rs::Control::Cooler)
-        .returning(|_| Some(0));
+        .returning(move |_| if has_cooler { Some(0) } else { None });
     mock.expect_set_parameter()
-        .once()
-        .withf(|control, temp| {
-            *control == qhyccd_rs::Control::Cooler && (*temp - -2_f64).abs() < f64::EPSILON
+        .times(set_parameter_times)
+        .withf(move |control, temp| {
+            *control == qhyccd_rs::Control::Cooler && (*temp - temperature).abs() < f64::EPSILON
         })
-        .returning(|_, _| Ok(()));
-    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
-    //when
-    let res = camera.set_set_ccd_temperature(-2_f64).await;
-    //then
-    assert!(res.is_ok());
-}
-
-#[tokio::test]
-async fn set_set_ccd_temperature_fail_no_cooler() {
-    //given
-    let mut mock = MockCamera::new();
-    mock.expect_is_control_available()
-        .once()
-        .withf(|control| *control == qhyccd_rs::Control::Cooler)
-        .returning(|_| None);
-    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
-    //when
-    let res = camera.set_set_ccd_temperature(-2_f64).await;
-    //then
-    assert_eq!(
-        res.err().unwrap().to_string(),
-        ASCOMError::NOT_IMPLEMENTED.to_string()
-    )
-}
-
-#[tokio::test]
-async fn set_set_ccd_temperature_fail_set_parameter_error() {
-    //given
-    let mut mock = MockCamera::new();
-    mock.expect_is_control_available()
-        .once()
-        .withf(|control| *control == qhyccd_rs::Control::Cooler)
-        .returning(|_| Some(0));
-    mock.expect_set_parameter()
-        .once()
-        .withf(|control, temp| {
-            *control == qhyccd_rs::Control::Cooler && (*temp - -2_f64).abs() < f64::EPSILON
-        })
-        .returning(|_, _| {
-            Err(eyre!(qhyccd_rs::QHYError::SetParameterError {
-                error_code: 123
-            }))
-        });
-    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
-    //when
-    let res = camera.set_set_ccd_temperature(-2_f64).await;
-    //then
-    assert_eq!(
-        res.err().unwrap().to_string(),
-        ASCOMError::INVALID_VALUE.to_string()
-    )
-}
-
-#[tokio::test]
-async fn set_set_ccd_temperature_fail_ascom_check() {
-    //given
-    let mock = MockCamera::new();
-    let camera = new_camera(mock, MockCameraType::Untouched);
-    //when
-    let res = camera.set_set_ccd_temperature(-273.25_f64).await;
-    //then
-    assert_eq!(
-        res.err().unwrap().to_string(),
-        ASCOMError::INVALID_VALUE.to_string()
+        .return_once(move |_, _| set_parameter);
+    let camera = new_camera(
+        mock,
+        MockCameraType::IsOpenTrue {
+            times: is_open_times,
+        },
     );
-
     //when
-    let res = camera.set_set_ccd_temperature(100_f64).await;
+    let res = camera.set_set_ccd_temperature(temperature).await;
     //then
-    assert_eq!(
-        res.err().unwrap().to_string(),
-        ASCOMError::INVALID_VALUE.to_string()
-    )
+    if res.is_ok() {
+        assert!(expected.is_ok());
+    } else {
+        assert_eq!(
+            res.err().unwrap().to_string(),
+            expected.err().unwrap().to_string()
+        )
+    }
 }
 
+#[rstest]
+#[case(true, 1, 1, Ok(25_f64), 1, Ok(25_i32))]
+#[case(true, 1, 1, Err(eyre!("error")), 1, Err(ASCOMError::UNSPECIFIED))]
+#[case(false, 1, 1, Ok(25_f64), 0, Err(ASCOMError::NOT_IMPLEMENTED))]
 #[tokio::test]
-async fn gain_success() {
+async fn gain(
+    #[case] is_control_available: bool,
+    #[case] is_control_available_times: usize,
+    #[case] open_times: usize,
+    #[case] get_parameter: Result<f64>,
+    #[case] get_parameter_times: usize,
+    #[case] expected: Result<i32, ASCOMError>,
+) {
     //given
     let mut mock = MockCamera::new();
     mock.expect_is_control_available()
-        .once()
+        .times(is_control_available_times)
         .withf(|control| *control == qhyccd_rs::Control::Gain)
-        .returning(|_| Some(0));
+        .returning(move |_| if is_control_available { Some(0) } else { None });
     mock.expect_get_parameter()
-        .once()
+        .times(get_parameter_times)
         .withf(|control| *control == qhyccd_rs::Control::Gain)
-        .returning(|_| Ok(25_f64));
-    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
+        .return_once(move |_| get_parameter);
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: open_times });
     //when
     let res = camera.gain().await;
     //then
-    assert_eq!(res.unwrap(), 25_i32);
+    if res.is_ok() {
+        assert_eq!(res.unwrap(), expected.unwrap());
+    } else {
+        assert_eq!(
+            res.err().unwrap().to_string(),
+            expected.err().unwrap().to_string()
+        )
+    }
 }
 
+#[rstest]
+#[case(50_i32, true, 1, 1, Some((0_f64,  51_f64)), Ok(()), 1, Ok(()))]
+#[case(50_i32, true, 1, 1, None, Ok(()), 0, Err(ASCOMError::unspecified("camera reports gain control available, but min, max values are not set after initialization")))]
+#[case(-50_i32, true, 1, 1, Some((0_f64,  51_f64)), Ok(()), 0, Err(ASCOMError::INVALID_VALUE))]
+#[case(50_i32, false, 1, 1, Some((0_f64,  51_f64)), Ok(()), 0, Err(ASCOMError::NOT_IMPLEMENTED))]
+#[case(50_i32, true, 1, 1, Some((0_f64,  51_f64)), Err(eyre!("error")), 1, Err(ASCOMError::UNSPECIFIED))]
 #[tokio::test]
-async fn gain_fail_get_parameter() {
+async fn set_gain(
+    #[case] gain: i32,
+    #[case] is_control_available: bool,
+    #[case] is_control_available_times: usize,
+    #[case] open_times: usize,
+    #[case] min_max: Option<(f64, f64)>,
+    #[case] set_parameter: Result<()>,
+    #[case] set_parameter_times: usize,
+    #[case] expected: Result<(), ASCOMError>,
+) {
     //given
     let mut mock = MockCamera::new();
     mock.expect_is_control_available()
-        .once()
+        .times(is_control_available_times)
         .withf(|control| *control == qhyccd_rs::Control::Gain)
-        .returning(|_| Some(0));
-    mock.expect_get_parameter()
-        .once()
-        .withf(|control| *control == qhyccd_rs::Control::Gain)
-        .returning(|_| {
-            Err(eyre!(qhyccd_rs::QHYError::GetParameterError {
-                control: qhyccd_rs::Control::Gain,
-            }))
-        });
-    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
-    //when
-    let res = camera.gain().await;
-    //then
-    assert_eq!(
-        res.err().unwrap().to_string(),
-        ASCOMError::UNSPECIFIED.to_string()
-    )
-}
-
-#[tokio::test]
-async fn gain_fail_not_implemented() {
-    //given
-    let mut mock = MockCamera::new();
-    mock.expect_is_control_available()
-        .once()
-        .withf(|control| *control == qhyccd_rs::Control::Gain)
-        .returning(|_| None);
-    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
-    //when
-    let res = camera.gain().await;
-    //then
-    assert_eq!(
-        res.err().unwrap().to_string(),
-        ASCOMError::NOT_IMPLEMENTED.to_string()
-    )
-}
-
-#[tokio::test]
-async fn set_gain_success() {
-    //given
-    let mut mock = MockCamera::new();
-    mock.expect_is_control_available()
-        .once()
-        .withf(|control| *control == qhyccd_rs::Control::Gain)
-        .returning(|_| Some(0));
+        .returning(move |_| if is_control_available { Some(0) } else { None });
     mock.expect_set_parameter()
-        .once()
-        .withf(|control, gain| {
-            *control == qhyccd_rs::Control::Gain && (*gain - 25_f64).abs() < f64::EPSILON
+        .times(set_parameter_times)
+        .withf(move |control, g| {
+            *control == qhyccd_rs::Control::Gain && (*g - gain as f64).abs() < f64::EPSILON
         })
-        .returning(|_, _| Ok(()));
+        .return_once(move |_, _| set_parameter);
     let camera = new_camera(
         mock,
         MockCameraType::WithGain {
-            times: 1,
-            gain_min: 0_f64,
-            gain_max: 51_f64,
+            times: open_times,
+            min_max,
         },
     );
     //when
-    let res = camera.set_gain(25_i32).await;
+    let res = camera.set_gain(gain).await;
     //then
-    assert!(res.is_ok());
+    if res.is_ok() {
+        assert!(expected.is_ok());
+    } else {
+        assert_eq!(
+            res.err().unwrap().to_string(),
+            expected.err().unwrap().to_string()
+        )
+    }
 }
 
+#[rstest]
+#[case(1, None, Err(ASCOMError::NOT_IMPLEMENTED))]
+#[case(1, Some((0_f64, 51_f64)), Ok(0_i32))]
 #[tokio::test]
-async fn set_gain_fail_set_parameter() {
-    //given
-    let mut mock = MockCamera::new();
-    mock.expect_is_control_available()
-        .once()
-        .withf(|control| *control == qhyccd_rs::Control::Gain)
-        .returning(|_| Some(0));
-    mock.expect_set_parameter()
-        .once()
-        .withf(|control, gain| {
-            *control == qhyccd_rs::Control::Gain && (*gain - 25_f64).abs() < f64::EPSILON
-        })
-        .returning(|_, _| {
-            Err(eyre!(qhyccd_rs::QHYError::SetParameterError {
-                error_code: 123
-            }))
-        });
-    let camera = new_camera(
-        mock,
-        MockCameraType::WithGain {
-            times: 1,
-            gain_min: 0_f64,
-            gain_max: 51_f64,
-        },
-    );
-    //when
-    let res = camera.set_gain(25_i32).await;
-    //then
-    assert_eq!(
-        res.err().unwrap().to_string(),
-        ASCOMError::UNSPECIFIED.to_string()
-    )
-}
-
-#[tokio::test]
-async fn set_gain_fail_no_min_max() {
-    //given
-    let mut mock = MockCamera::new();
-    mock.expect_is_control_available()
-        .once()
-        .withf(|control| *control == qhyccd_rs::Control::Gain)
-        .returning(|_| Some(0));
-    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
-    //when
-    let res = camera.set_gain(25_i32).await;
-    //then
-    assert_eq!(
-        res.err().unwrap().to_string(),
-        ASCOMError::unspecified("camera reports gain control available, but min, max values are not set after initialization").to_string()
-    )
-}
-
-#[tokio::test]
-async fn set_gain_fail_invalid_gain_value() {
-    //given
-    let mut mock = MockCamera::new();
-    mock.expect_is_control_available()
-        .times(2)
-        .withf(|control| *control == qhyccd_rs::Control::Gain)
-        .returning(|_| Some(0));
-    let camera = new_camera(
-        mock,
-        MockCameraType::WithGain {
-            times: 2,
-            gain_min: 0_f64,
-            gain_max: 51_f64,
-        },
-    );
-    //when
-    let res = camera.set_gain(-1_i32).await;
-    //then
-    assert_eq!(
-        res.err().unwrap().to_string(),
-        ASCOMError::INVALID_VALUE.to_string()
-    );
-
-    //when
-    let res = camera.set_gain(60_i32).await;
-    //then
-    assert_eq!(
-        res.err().unwrap().to_string(),
-        ASCOMError::INVALID_VALUE.to_string()
-    )
-}
-
-#[tokio::test]
-async fn set_gain_fail_no_gain_control() {
-    //given
-    let mut mock = MockCamera::new();
-    mock.expect_is_control_available()
-        .once()
-        .withf(|control| *control == qhyccd_rs::Control::Gain)
-        .returning(|_| None);
-    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
-    //when
-    let res = camera.set_gain(25_i32).await;
-    //then
-    assert_eq!(
-        res.err().unwrap().to_string(),
-        ASCOMError::NOT_IMPLEMENTED.to_string()
-    )
-}
-
-#[tokio::test]
-async fn gain_min_success() {
+async fn gain_min(
+    #[case] open_times: usize,
+    #[case] min_max: Option<(f64, f64)>,
+    #[case] expected: Result<i32, ASCOMError>,
+) {
     //given
     let mock = MockCamera::new();
     let camera = new_camera(
         mock,
         MockCameraType::WithGain {
-            times: 1,
-            gain_min: 0_f64,
-            gain_max: 51_f64,
+            times: open_times,
+            min_max,
         },
     );
     //when
     let res = camera.gain_min().await;
     //then
-    assert_eq!(res.unwrap(), 0_i32);
+    if res.is_ok() {
+        assert_eq!(res.unwrap(), expected.unwrap());
+    } else {
+        assert_eq!(
+            res.err().unwrap().to_string(),
+            expected.err().unwrap().to_string()
+        )
+    }
 }
 
+#[rstest]
+#[case(1, None, Err(ASCOMError::NOT_IMPLEMENTED))]
+#[case(1, Some((0_f64, 51_f64)), Ok(51_i32))]
 #[tokio::test]
-async fn gain_min_fail_no_gain_control() {
-    //given
-    let mock = MockCamera::new();
-    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
-    //when
-    let res = camera.gain_min().await;
-    //then
-    assert_eq!(
-        res.err().unwrap().to_string(),
-        ASCOMError::NOT_IMPLEMENTED.to_string()
-    )
-}
-
-#[tokio::test]
-async fn gain_max_success() {
+async fn gain_max(
+    #[case] open_times: usize,
+    #[case] min_max: Option<(f64, f64)>,
+    #[case] expected: Result<i32, ASCOMError>,
+) {
     //given
     let mock = MockCamera::new();
     let camera = new_camera(
         mock,
         MockCameraType::WithGain {
-            times: 1,
-            gain_min: 0_f64,
-            gain_max: 51_f64,
+            times: open_times,
+            min_max,
         },
     );
     //when
     let res = camera.gain_max().await;
     //then
-    assert_eq!(res.unwrap(), 51_i32);
-}
-
-#[tokio::test]
-async fn gain_max_fail_no_gain_control() {
-    //given
-    let mock = MockCamera::new();
-    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
-    //when
-    let res = camera.gain_max().await;
-    //then
-    assert_eq!(
-        res.err().unwrap().to_string(),
-        ASCOMError::NOT_IMPLEMENTED.to_string()
-    )
+    if res.is_ok() {
+        assert_eq!(res.unwrap(), expected.unwrap());
+    } else {
+        assert_eq!(
+            res.err().unwrap().to_string(),
+            expected.err().unwrap().to_string()
+        )
+    }
 }
 
 #[rstest]

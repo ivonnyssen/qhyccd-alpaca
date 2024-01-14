@@ -1069,7 +1069,7 @@ impl Camera for QhyccdCamera {
             }
             Err(e) => {
                 error!(?e, "could not set target temperature");
-                Err(ASCOMError::INVALID_VALUE)
+                Err(ASCOMError::UNSPECIFIED)
             }
         }
     }
@@ -1206,7 +1206,7 @@ impl Camera for QhyccdCamera {
             .get_parameter(qhyccd_rs::Control::Offset)
             .map_or_else(
                 |e| {
-                    error!(?e, "failed to set offset");
+                    error!(?e, "failed to get offset");
                     Err(ASCOMError::UNSPECIFIED)
                 },
                 |offset| Ok(offset as i32),
