@@ -87,6 +87,10 @@ enum MockCameraType {
     IsOpenFalse {
         times: usize,
     },
+    WithCCDInfo {
+        times: usize,
+        camera_ccd_info: Option<CCDChipInfo>,
+    },
     WithRoiAndCCDInfo {
         times: usize,
         camera_roi: CCDChipArea,
@@ -172,6 +176,13 @@ fn new_camera(mut device: MockCamera, variant: MockCameraType) -> QhyccdCamera {
         }
         MockCameraType::IsOpenFalse { times } => {
             device.expect_is_open().times(times).returning(|| Ok(false));
+        }
+        MockCameraType::WithCCDInfo {
+            times,
+            camera_ccd_info,
+        } => {
+            device.expect_is_open().times(times).returning(|| Ok(true));
+            ccd_info = RwLock::new(camera_ccd_info);
         }
         MockCameraType::WithRoiAndCCDInfo {
             times,
@@ -3246,12 +3257,12 @@ async fn start_exposure_fail_is_exposing_no_miri() {
 }
 
 #[rstest]
-#[case(vec![0, 1, 2, 3, 4, 5], 3, 2, 8, 1, true)] //8bpp
-#[case(Vec::new(), 3, 2, 8, 1, false)] // invalid vector
-#[case(vec![0, 0, 0, 1, 0, 2, 0, 3, 0, 4, 0, 5], 3, 2, 16, 1, true)] //16bpp
-#[case(Vec::new(), 3, 2, 16, 1, false)] //invalid vector
-#[case(vec![0, 0, 0, 1, 0, 2, 0, 3, 0, 4, 0, 5], 3, 2, 16, 2, false)] //unsupported channel
-#[case(vec![0, 0, 0, 1, 0, 2, 0, 3, 0, 4, 0, 5], 3, 2, 32, 1, false)] //unsupported bpp
+#[case(vec![0, 1, 2, 3, 4, 5], 3, 2, 8, 1, Ok(()))] //8bpp
+#[case(Vec::new(), 3, 2, 8, 1, Err(ASCOMError::INVALID_OPERATION))] // invalid vector
+#[case(vec![0, 0, 0, 1, 0, 2, 0, 3, 0, 4, 0, 5], 3, 2, 16, 1, Ok(()))] //16bpp
+#[case(Vec::new(), 3, 2, 16, 1, Err(ASCOMError::INVALID_OPERATION))] //invalid vector
+#[case(vec![0, 0, 0, 1, 0, 2, 0, 3, 0, 4, 0, 5], 3, 2, 16, 2, Err(ASCOMError::INVALID_OPERATION))] //unsupported channel
+#[case(vec![0, 0, 0, 1, 0, 2, 0, 3, 0, 4, 0, 5], 3, 2, 32, 1, Err(ASCOMError::INVALID_OPERATION))] //unsupported bpp
 #[tokio::test]
 async fn start_exposure_success_no_miri(
     #[case] data: Vec<u8>,
@@ -3259,7 +3270,7 @@ async fn start_exposure_success_no_miri(
     #[case] height: u32,
     #[case] bits_per_pixel: u32,
     #[case] channels: u32,
-    #[case] expect_ok: bool,
+    #[case] expected: ASCOMResult,
 ) {
     //given
     let mut mock = MockCamera::new();
@@ -3328,24 +3339,24 @@ async fn start_exposure_success_no_miri(
     //when
     let res = camera.start_exposure(1_f64, true).await;
     //then
-    if expect_ok {
+    if expected.is_ok() {
         assert!(res.is_ok())
     } else {
         assert_eq!(
             res.err().unwrap().to_string(),
-            ASCOMError::INVALID_OPERATION.to_string(),
+            expected.unwrap_err().to_string(),
         )
     }
 }
 
 #[rustfmt::skip]
 #[rstest]
-#[case(true, true, 1, true, 1, true, 1, true, 1, 1, true, "")]
-#[case(false, true, 0, true, 0, true, 0, true, 0, 0, false, "ASCOM error INVALID_VALUE: failed to set ROI")]
-#[case(true, false, 1, true, 0, true, 0, true, 0, 0, false, "ASCOM error UNSPECIFIED: Unspecified error")]
-#[case(true, true, 1, false, 1, true, 1, true, 1, 1, false, "ASCOM error UNSPECIFIED: Unspecified error")]
-#[case(true, true, 1, true, 1, false, 1, true, 0, 1, false, "ASCOM error UNSPECIFIED: Unspecified error")]
-#[case(true, true, 1, true, 1, true, 1, false, 1, 1, false, "ASCOM error UNSPECIFIED: Unspecified error")]
+#[case(true, true, 1, true, 1, true, 1, true, 1, 1, Ok(()))]
+#[case(false, true, 0, true, 0, true, 0, true, 0, 0, Err(ASCOMError::invalid_value("failed to set ROI")))]
+#[case(true, false, 1, true, 0, true, 0, true, 0, 0, Err(ASCOMError::UNSPECIFIED))]
+#[case(true, true, 1, false, 1, true, 1, true, 1, 1, Err(ASCOMError::UNSPECIFIED))]
+#[case(true, true, 1, true, 1, false, 1, true, 0, 1, Err(ASCOMError::UNSPECIFIED))]
+#[case(true, true, 1, true, 1, true, 1, false, 1, 1, Err(ASCOMError::UNSPECIFIED))]
 #[tokio::test]
 async fn start_exposure_fail_no_miri(
     #[case] set_roi_ok: bool,
@@ -3358,8 +3369,7 @@ async fn start_exposure_fail_no_miri(
     #[case] get_singleframe_ok: bool,
     #[case] get_singleframe_times: usize,
     #[case] clone_times: usize,
-    #[case] expect_ok: bool,
-    #[case] expected_error: &str,
+    #[case] expected: ASCOMResult,
 ) {
     //given
     let mut mock = MockCamera::new();
@@ -3459,107 +3469,103 @@ async fn start_exposure_fail_no_miri(
     //when
     let res = camera.start_exposure(1_f64, true).await;
     //then
-    if expect_ok {
+    if expected.is_ok() {
         assert!(res.is_ok())
     } else {
-        assert_eq!(res.err().unwrap().to_string(), expected_error.to_string(),)
+        assert_eq!(
+            res.err().unwrap().to_string(),
+            expected.unwrap_err().to_string(),
+        )
     }
 }
 
+#[rstest]
+#[case(true, 1, 2.5_f64, Ok(2.5_f64))]
+#[case(false, 1, 2.5_f64, Err(ASCOMError::VALUE_NOT_SET))]
 #[tokio::test]
-async fn pixel_size_x_success() {
+async fn pixel_size_x(
+    #[case] has_ccd_info: bool,
+    #[case] is_open_times: usize,
+    #[case] size: f64,
+    #[case] expected: ASCOMResult<f64>,
+) {
     //given
     let mock = MockCamera::new();
     let camera = new_camera(
         mock,
-        MockCameraType::WithRoiAndCCDInfo {
-            times: 1,
-            camera_roi: CCDChipArea {
-                start_x: 0,
-                start_y: 0,
-                width: 100,
-                height: 100,
-            },
-            camera_ccd_info: CCDChipInfo {
-                chip_width: 7.0,
-                chip_height: 5.0,
-                image_width: 1920,
-                image_height: 1080,
-                pixel_width: 2.5,
-                pixel_height: 2.9,
-                bits_per_pixel: 16,
+        MockCameraType::WithCCDInfo {
+            times: is_open_times,
+            camera_ccd_info: if has_ccd_info {
+                Some(CCDChipInfo {
+                    chip_width: 7.0,
+                    chip_height: 5.0,
+                    image_width: 1920,
+                    image_height: 1080,
+                    pixel_width: size,
+                    pixel_height: 2.9,
+                    bits_per_pixel: 16,
+                })
+            } else {
+                None
             },
         },
     );
     //when
     let res = camera.pixel_size_x().await;
     //then
-    assert!(res.is_ok());
-    assert_eq!(res.unwrap(), 2.5_f64);
+    if res.is_ok() {
+        assert!((res.unwrap() - expected.unwrap()).abs() < f64::EPSILON);
+    } else {
+        assert_eq!(
+            res.err().unwrap().to_string(),
+            expected.err().unwrap().to_string()
+        )
+    }
 }
 
+#[rstest]
+#[case(true, 1, 2.9_f64, Ok(2.9_f64))]
+#[case(false, 1, 2.9_f64, Err(ASCOMError::VALUE_NOT_SET))]
 #[tokio::test]
-async fn pixel_size_x_fail_no_ccd_info() {
-    //given
-    let mock = MockCamera::new();
-    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
-    //when
-    let res = camera.pixel_size_x().await;
-    //then
-    assert!(res.is_err());
-    assert_eq!(
-        res.err().unwrap().to_string(),
-        ASCOMError::VALUE_NOT_SET.to_string()
-    )
-}
-
-#[tokio::test]
-async fn pixel_size_y_success() {
+async fn pixel_size_y(
+    #[case] has_ccd_info: bool,
+    #[case] is_open_times: usize,
+    #[case] size: f64,
+    #[case] expected: ASCOMResult<f64>,
+) {
     //given
     let mock = MockCamera::new();
     let camera = new_camera(
         mock,
-        MockCameraType::WithRoiAndCCDInfo {
-            times: 1,
-            camera_roi: CCDChipArea {
-                start_x: 0,
-                start_y: 0,
-                width: 100,
-                height: 100,
-            },
-            camera_ccd_info: CCDChipInfo {
-                chip_width: 7.0,
-                chip_height: 5.0,
-                image_width: 1920,
-                image_height: 1080,
-                pixel_width: 2.5,
-                pixel_height: 2.9,
-                bits_per_pixel: 16,
+        MockCameraType::WithCCDInfo {
+            times: is_open_times,
+            camera_ccd_info: if has_ccd_info {
+                Some(CCDChipInfo {
+                    chip_width: 7.0,
+                    chip_height: 5.0,
+                    image_width: 1920,
+                    image_height: 1080,
+                    pixel_width: 2.5,
+                    pixel_height: size,
+                    bits_per_pixel: 16,
+                })
+            } else {
+                None
             },
         },
     );
     //when
     let res = camera.pixel_size_y().await;
     //then
-    assert!(res.is_ok());
-    assert_eq!(res.unwrap(), 2.9_f64);
+    if res.is_ok() {
+        assert!((res.unwrap() - expected.unwrap()).abs() < f64::EPSILON);
+    } else {
+        assert_eq!(
+            res.err().unwrap().to_string(),
+            expected.err().unwrap().to_string()
+        )
+    }
 }
-
-#[tokio::test]
-async fn pixel_size_y_fail_no_ccd_info() {
-    //given
-    let mock = MockCamera::new();
-    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
-    //when
-    let res = camera.pixel_size_y().await;
-    //then
-    assert!(res.is_err());
-    assert_eq!(
-        res.err().unwrap().to_string(),
-        ASCOMError::VALUE_NOT_SET.to_string()
-    )
-}
-
 #[rstest]
 #[case(true, Ok(1_f64), 1, Ok(true))]
 #[case(true, Ok(0_f64), 1, Ok(false))]
@@ -3570,7 +3576,7 @@ async fn cooler_on(
     #[case] is_control_available: bool,
     #[case] get_parameter: Result<f64>,
     #[case] get_parameter_times: usize,
-    #[case] expected: Result<bool, ASCOMError>,
+    #[case] expected: ASCOMResult<bool>,
 ) {
     //given
     let mut mock = MockCamera::new();
@@ -3609,7 +3615,7 @@ async fn set_cooler_on(
     #[case] cooler_on: bool,
     #[case] set_manualpwm_ok: bool,
     #[case] set_manualpwm_times: usize,
-    #[case] expected: Result<(), ASCOMError>,
+    #[case] expected: ASCOMResult<()>,
 ) {
     //given
     let mut mock = MockCamera::new();
@@ -3658,7 +3664,7 @@ async fn cooler_power(
     #[case] has_cooler: bool,
     #[case] get_pwm: Result<f64>,
     #[case] get_pwm_times: usize,
-    #[case] expected: Result<f64, ASCOMError>,
+    #[case] expected: ASCOMResult<f64>,
 ) {
     //given
     let mut mock = MockCamera::new();
@@ -3688,10 +3694,7 @@ async fn cooler_power(
 #[case(true, Ok(true))]
 #[case(false, Ok(false))]
 #[tokio::test]
-async fn can_set_ccd_temperature(
-    #[case] has_cooler: bool,
-    #[case] expected: Result<bool, ASCOMError>,
-) {
+async fn can_set_ccd_temperature(#[case] has_cooler: bool, #[case] expected: ASCOMResult<bool>) {
     //given
     let mut mock = MockCamera::new();
     mock.expect_is_control_available()
@@ -3721,7 +3724,7 @@ async fn ccd_temperature_success_cooler(
     #[case] has_cooler: bool,
     #[case] cur_temp: Result<f64>,
     #[case] cur_temp_times: usize,
-    #[case] expected: Result<f64, ASCOMError>,
+    #[case] expected: ASCOMResult<f64>,
 ) {
     //given
     let mut mock = MockCamera::new();
@@ -3760,7 +3763,7 @@ async fn set_ccd_temperature(
     #[case] is_open_times: usize,
     #[case] cur_temp: Result<f64>,
     #[case] cur_temp_times: usize,
-    #[case] expected: Result<f64, ASCOMError>,
+    #[case] expected: ASCOMResult<f64>,
 ) {
     //given
     let mut mock = MockCamera::new();
@@ -3806,7 +3809,7 @@ async fn set_set_ccd_temperature(
     #[case] temperature: f64,
     #[case] set_parameter: Result<()>,
     #[case] set_parameter_times: usize,
-    #[case] expected: Result<(), ASCOMError>,
+    #[case] expected: ASCOMResult<()>,
 ) {
     //given
     let mut mock = MockCamera::new();
@@ -3850,7 +3853,7 @@ async fn gain(
     #[case] open_times: usize,
     #[case] get_parameter: Result<f64>,
     #[case] get_parameter_times: usize,
-    #[case] expected: Result<i32, ASCOMError>,
+    #[case] expected: ASCOMResult<i32>,
 ) {
     //given
     let mut mock = MockCamera::new();
@@ -3891,7 +3894,7 @@ async fn set_gain(
     #[case] min_max: Option<(f64, f64)>,
     #[case] set_parameter: Result<()>,
     #[case] set_parameter_times: usize,
-    #[case] expected: Result<(), ASCOMError>,
+    #[case] expected: ASCOMResult<()>,
 ) {
     //given
     let mut mock = MockCamera::new();
@@ -3932,7 +3935,7 @@ async fn set_gain(
 async fn gain_min(
     #[case] open_times: usize,
     #[case] min_max: Option<(f64, f64)>,
-    #[case] expected: Result<i32, ASCOMError>,
+    #[case] expected: ASCOMResult<i32>,
 ) {
     //given
     let mock = MockCamera::new();
@@ -3963,7 +3966,7 @@ async fn gain_min(
 async fn gain_max(
     #[case] open_times: usize,
     #[case] min_max: Option<(f64, f64)>,
-    #[case] expected: Result<i32, ASCOMError>,
+    #[case] expected: ASCOMResult<i32>,
 ) {
     //given
     let mock = MockCamera::new();
@@ -3998,7 +4001,7 @@ async fn offset(
     #[case] open_times: usize,
     #[case] get_parameter: Result<f64>,
     #[case] get_parameter_times: usize,
-    #[case] expected: Result<i32, ASCOMError>,
+    #[case] expected: ASCOMResult<i32>,
 ) {
     //given
     let mut mock = MockCamera::new();
@@ -4039,7 +4042,7 @@ async fn set_offset(
     #[case] min_max: Option<(f64, f64)>,
     #[case] set_parameter: Result<()>,
     #[case] set_parameter_times: usize,
-    #[case] expected: Result<(), ASCOMError>,
+    #[case] expected: ASCOMResult<()>,
 ) {
     //given
     let mut mock = MockCamera::new();
@@ -4080,7 +4083,7 @@ async fn set_offset(
 async fn offset_min(
     #[case] open_times: usize,
     #[case] min_max: Option<(f64, f64)>,
-    #[case] expected: Result<i32, ASCOMError>,
+    #[case] expected: ASCOMResult<i32>,
 ) {
     //given
     let mock = MockCamera::new();
@@ -4111,7 +4114,7 @@ async fn offset_min(
 async fn offset_max(
     #[case] open_times: usize,
     #[case] min_max: Option<(f64, f64)>,
-    #[case] expected: Result<i32, ASCOMError>,
+    #[case] expected: ASCOMResult<i32>,
 ) {
     //given
     let mock = MockCamera::new();
