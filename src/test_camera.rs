@@ -1854,7 +1854,7 @@ async fn abort_exposure(#[case] readout: Result<()>, #[case] expected: ASCOMResu
 #[case(-1_f64, true, Err(ASCOMError::invalid_value("duration must be >= 0")))]
 #[case(10_f64, false, Err(ASCOMError::invalid_operation("dark frames not supported")))]
 #[tokio::test]
-async fn start_exposure_fail(
+async fn start_exposure_fail_dark_neg(
     #[case] duration: f64,
     #[case] is_dark: bool,
     #[case] expected: ASCOMResult<()>,
@@ -1871,94 +1871,71 @@ async fn start_exposure_fail(
     )
 }
 
+#[rstest]
+#[case(3, 100, 0, 10, 10, Err(ASCOMError::invalid_value("StartX > NumX")))]
+#[case(5, 0, 100, 10, 10, Err(ASCOMError::invalid_value("StartY > NumY")))]
 #[tokio::test]
-async fn start_exposure_fail_start_x_greater_than_num_x() {
+async fn start_exposure_fail_start_num(
+    #[case] times: usize,
+    #[case] start_x: u32,
+    #[case] start_y: u32,
+    #[case] num_x: u32,
+    #[case] num_y: u32,
+    #[case] expected: ASCOMResult<()>,
+) {
     //given
     let mock = MockCamera::new();
     let camera = new_camera(
         mock,
-        MockCameraType::WithRoiAndCCDInfo {
-            times: 3,
-            camera_roi: CCDChipArea {
-                start_x: 100,
-                start_y: 0,
-                width: 10,
-                height: 10,
-            },
-            camera_ccd_info: CCDChipInfo {
-                chip_width: 7.0,
-                chip_height: 5.0,
-                image_width: 1920,
-                image_height: 1080,
-                pixel_width: 2.9,
-                pixel_height: 2.9,
-                bits_per_pixel: 16,
-            },
-        },
-    );
-    //when
-    let res = camera.start_exposure(1000_f64, true).await;
-    //then
-    assert!(res.is_err());
-    assert_eq!(
-        res.err().unwrap().to_string(),
-        ASCOMError::invalid_value("StartX > NumX").to_string(),
-    )
-}
-
-#[tokio::test]
-async fn start_exposure_fail_start_y_greater_than_num_y() {
-    //given
-    let mock = MockCamera::new();
-    let camera = new_camera(
-        mock,
-        MockCameraType::WithRoiAndCCDInfo {
-            times: 5,
-            camera_roi: CCDChipArea {
-                start_x: 0,
-                start_y: 100,
-                width: 10,
-                height: 10,
-            },
-            camera_ccd_info: CCDChipInfo {
-                chip_width: 7.0,
-                chip_height: 5.0,
-                image_width: 1920,
-                image_height: 1080,
-                pixel_width: 2.9,
-                pixel_height: 2.9,
-                bits_per_pixel: 16,
-            },
+        MockCameraType::WithRoi {
+            times,
+            camera_roi: Some(CCDChipArea {
+                start_x,
+                start_y,
+                width: num_x,
+                height: num_y,
+            }),
         },
     );
     //when
     let res = camera.start_exposure(1000_f64, true).await;
     //then
     assert_eq!(
-        res.err().unwrap().to_string(),
-        ASCOMError::invalid_value("StartY > NumY").to_string(),
+        res.unwrap_err().to_string(),
+        expected.unwrap_err().to_string(),
     )
 }
 
+#[rustfmt::skip]
+#[rstest]
+#[case(8, 50, 100, 20, 1080, Err(ASCOMError::invalid_value("NumX > CameraXSize")))]
+#[case(11, 50, 100, 1920, 80, Err(ASCOMError::invalid_value("NumY > CameraYSize")))]
 #[tokio::test]
-async fn start_exposure_fail_num_x_greater_than_camera_x_size() {
+async fn start_exposure_fail_num_size(
+    #[case] times: usize,
+    #[case] num_x: u32,
+    #[case] num_y: u32,
+    #[case] image_width: u32,
+    #[case] image_height: u32,
+    #[case] expected: ASCOMResult<()>,
+) {
     //given
     let mock = MockCamera::new();
     let camera = new_camera(
         mock,
         MockCameraType::WithBinningAndRoiAndCCDInfo {
-            times: 8,
+            times,
             camera_roi: CCDChipArea {
                 start_x: 0,
                 start_y: 0,
-                width: 50,
-                height: 100,
+                width: num_x,
+                height: num_y,
             },
             camera_ccd_info: CCDChipInfo {
                 chip_width: 7.0,
                 chip_height: 5.0,
-                image_width: 20,
-                image_height: 1080,
+                image_width,
+                image_height,
                 pixel_width: 2.9,
                 pixel_height: 2.9,
                 bits_per_pixel: 16,
@@ -1970,8 +1947,8 @@ async fn start_exposure_fail_num_x_greater_than_camera_x_size() {
     let res = camera.start_exposure(1000_f64, true).await;
     //then
     assert_eq!(
-        res.err().unwrap().to_string(),
-        ASCOMError::invalid_value("NumX > CameraXSize").to_string(),
+        res.unwrap_err().to_string(),
+        expected.unwrap_err().to_string(),
     )
 }
 
