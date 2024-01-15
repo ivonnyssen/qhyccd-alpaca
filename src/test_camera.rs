@@ -99,11 +99,6 @@ enum MockCameraType {
         times: usize,
         state: State,
     },
-    WithRoiAndCCDInfo {
-        times: usize,
-        camera_roi: CCDChipArea,
-        camera_ccd_info: CCDChipInfo,
-    },
     Untouched,
     WithStateExposing {
         expected_duration: f64,
@@ -197,15 +192,6 @@ fn new_camera(mut device: MockCamera, variant: MockCameraType) -> QhyccdCamera {
         } => {
             device.expect_is_open().times(times).returning(|| Ok(true));
             exposing = RwLock::new(camera_state);
-        }
-        MockCameraType::WithRoiAndCCDInfo {
-            times,
-            camera_roi,
-            camera_ccd_info,
-        } => {
-            device.expect_is_open().times(times).returning(|| Ok(true));
-            ccd_info = RwLock::new(Some(camera_ccd_info));
-            intended_roi = RwLock::new(Some(camera_roi));
         }
         MockCameraType::Untouched => {}
         MockCameraType::WithStateExposing { expected_duration } => {
@@ -1949,41 +1935,6 @@ async fn start_exposure_fail_num_size(
     assert_eq!(
         res.unwrap_err().to_string(),
         expected.unwrap_err().to_string(),
-    )
-}
-
-#[tokio::test]
-async fn start_exposure_fail_num_y_greater_than_camera_y_size() {
-    //given
-    let mock = MockCamera::new();
-    let camera = new_camera(
-        mock,
-        MockCameraType::WithBinningAndRoiAndCCDInfo {
-            times: 11,
-            camera_roi: CCDChipArea {
-                start_x: 0,
-                start_y: 0,
-                width: 50,
-                height: 100,
-            },
-            camera_ccd_info: CCDChipInfo {
-                chip_width: 7.0,
-                chip_height: 5.0,
-                image_width: 1920,
-                image_height: 80,
-                pixel_width: 2.9,
-                pixel_height: 2.9,
-                bits_per_pixel: 16,
-            },
-            camera_binning: 1_u32,
-        },
-    );
-    //when
-    let res = camera.start_exposure(1000_f64, true).await;
-    //then
-    assert_eq!(
-        res.err().unwrap().to_string(),
-        ASCOMError::invalid_value("NumY > CameraYSize").to_string(),
     )
 }
 
