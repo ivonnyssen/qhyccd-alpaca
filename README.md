@@ -77,7 +77,7 @@ cd target/release
 
 ## Rust version requirements
 
-qhyccd-alpaca-rs works with stable Rust. The minimum required Rust version is 1.70.0.
+qhyccd-alpaca-rs works with stable Rust. The minimum required Rust version is 1.75.0.
 
 ## Missing features
 
