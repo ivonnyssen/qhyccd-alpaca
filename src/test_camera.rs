@@ -152,6 +152,10 @@ enum MockCameraType {
         times: usize,
         min_max: Option<(f64, f64)>,
     },
+    WithReadoutMinMax {
+        times: usize,
+        min_max_step: Option<(f64, f64, f64)>,
+    },
 }
 
 fn new_camera(mut device: MockCamera, variant: MockCameraType) -> QhyccdCamera {
@@ -161,7 +165,7 @@ fn new_camera(mut device: MockCamera, variant: MockCameraType) -> QhyccdCamera {
     let mut ccd_info = RwLock::new(None);
     let mut intended_roi = RwLock::new(None);
     let mut exposing = RwLock::new(State::Idle);
-    let readout_speed_min_max_step = RwLock::new(None);
+    let mut readout_speed_min_max_step = RwLock::new(None);
     let mut exposure_min_max_step = RwLock::new(None);
     let mut last_exposure_start_time = RwLock::new(None);
     let mut last_exposure_duration_us = RwLock::new(None);
@@ -281,6 +285,13 @@ fn new_camera(mut device: MockCamera, variant: MockCameraType) -> QhyccdCamera {
         MockCameraType::WithOffset { times, min_max } => {
             device.expect_is_open().times(times).returning(|| Ok(true));
             offset_min_max = RwLock::new(min_max);
+        }
+        MockCameraType::WithReadoutMinMax {
+            times,
+            min_max_step,
+        } => {
+            device.expect_is_open().times(times).returning(|| Ok(true));
+            readout_speed_min_max_step = RwLock::new(min_max_step);
         }
     }
     QhyccdCamera {
@@ -2902,6 +2913,42 @@ async fn offset_max(
     );
     //when
     let res = camera.offset_max().await;
+    //then
+    if res.is_ok() {
+        assert_eq!(res.unwrap(), expected.unwrap());
+    } else {
+        assert_eq!(
+            res.err().unwrap().to_string(),
+            expected.err().unwrap().to_string()
+        )
+    }
+}
+
+#[rstest]
+#[case(Some(0), Some((0_f64, 1_f64, 0.1_f64)), Ok(true))]
+#[case(Some(0), None, Ok(false))]
+#[case(None, Some((0_f64, 1_f64, 0.1_f64)), Err(ASCOMError::NOT_IMPLEMENTED))]
+#[tokio::test]
+async fn can_fast_readout(
+    #[case] is_control_available: Option<u32>,
+    #[case] min_max_step: Option<(f64, f64, f64)>,
+    #[case] expected: ASCOMResult<bool>,
+) {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_is_control_available()
+        .once()
+        .withf(|control| *control == qhyccd_rs::Control::Speed)
+        .return_once(move |_| is_control_available);
+    let camera = new_camera(
+        mock,
+        MockCameraType::WithReadoutMinMax {
+            times: 1,
+            min_max_step,
+        },
+    );
+    //when
+    let res = camera.can_fast_readout().await;
     //then
     if res.is_ok() {
         assert_eq!(res.unwrap(), expected.unwrap());
