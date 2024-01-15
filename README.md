@@ -82,11 +82,12 @@ qhyccd-alpaca works with stable Rust. The minimum required Rust version is 1.75.
 ## Missing features
 
 - LiveMode is not implemented
-- the driver only supports cameras that can transfer 16bit images
+- The driver only supports cameras that can transfer 16bit images
+(almost all cameras can though)
 - FastReadout is implemented using the Control::Speed property in the driver, however
 this control is not available on any of my cameras, so it is untested.
-- pulse guiding is not implemented
-- if you find anything else missing or wrong, please open an [issue](https://github.com/ivonnyssen/qhyccd-alpaca/issues/new).
+- Pulse guiding is not implemented
+- If you find anything else missing or wrong, please open an [issue](https://github.com/ivonnyssen/qhyccd-alpaca/issues/new).
 
 ## License
 
