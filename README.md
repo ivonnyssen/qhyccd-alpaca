@@ -1,9 +1,8 @@
-# qhyccd-alpaca-rs
+# qhyccd-alpaca
 
-[![Crates.io](https://img.shields.io/crates/v/qhyccd-alpaca-rs.svg)](https://crates.io/crates/qhyccd-alpaca-rs)
-[![Documentation](https://docs.rs/qhyccd-alpaca-rs/badge.svg)](https://docs.rs/qhyccd-alpaca-rs/)
-[![Codecov](https://codecov.io/github/ivonnyssen/qhyccd-alpaca-rs/coverage.svg?branch=main)](https://codecov.io/gh/ivonnyssen/qhyccd-alpaca-rs)
-[![Dependency status](https://deps.rs/repo/github/ivonnyssen/qhyccd-alpaca-rs/status.svg)](https://deps.rs/repo/github/ivonnyssen/qhyccd-alpaca-rs)
+[![Crates.io](https://img.shields.io/crates/v/qhyccd-alpaca.svg)](https://crates.io/crates/qhyccd-alpaca)
+[![Codecov](https://codecov.io/github/ivonnyssen/qhyccd-alpaca/coverage.svg?branch=main)](https://codecov.io/gh/ivonnyssen/qhyccd-alpaca)
+[![Dependency status](https://deps.rs/repo/github/ivonnyssen/qhyccd-alpaca/status.svg)](https://deps.rs/repo/github/ivonnyssen/qhyccd-alpaca)
 
 ASCOM Alpaca driver for QHYCCD cameras and filter wheels written in Rust.
 
@@ -63,8 +62,8 @@ sudo sh install.sh
 ##### Clone the repository
 
 ```bash
-git clone https://github.com/ivonnyssen/qhyccd-alpaca-rs.git
-cd qhyccd-alpaca-rs
+git clone https://github.com/ivonnyssen/qhyccd-alpaca.git
+cd qhyccd-alpaca
 cargo build --release
 ```
 
@@ -72,21 +71,22 @@ cargo build --release
 
 ```bash
 cd target/release
-./qhyccd-alpaca-rs [--help for more info]
+./qhyccd-alpaca [--help for more info]
 ```
 
 ## Rust version requirements
 
-qhyccd-alpaca-rs works with stable Rust. The minimum required Rust version is 1.75.0.
+qhyccd-alpaca works with stable Rust. The minimum required Rust version is 1.75.0.
 
 ## Missing features
 
 - LiveMode is not implemented
-- the driver only supports cameras that can transfer 16bit images
+- The driver only supports cameras that can transfer 16bit images
+(almost all cameras can though)
 - FastReadout is implemented using the Control::Speed property in the driver, however
 this control is not available on any of my cameras, so it is untested.
-- pulse guiding is not implemented
-- if you find anything else missing or wrong, please open an [issue](https://github.com/ivonnyssen/qhyccd-alpaca-rs/issues/new).
+- Pulse guiding is not implemented
+- If you find anything else missing or wrong, please open an [issue](https://github.com/ivonnyssen/qhyccd-alpaca/issues/new).
 
 ## License
 
@@ -104,5 +104,5 @@ at your option.
 All contributions are welcome.
 
 Unless you explicitly state otherwise, any contribution intentionally submitted
-for inclusion in qhyccd-alpaca-rs by you, as defined in the Apache-2.0 license,
+for inclusion in qhyccd-alpaca by you, as defined in the Apache-2.0 license,
 shall be dual licensed as above, without any additional terms or conditions.
