@@ -145,16 +145,14 @@ impl QhyccdCamera {
                     let data: Vec<u8> =
                         image.data[0_usize..image.width as usize * image.height as usize].to_vec();
                     let array_base = Array3::from_shape_vec(
-                        (image.width as usize, image.height as usize, 1_usize),
+                        (image.height as usize, image.width as usize, 1_usize),
                         data,
                     )
                     .map_err(|e| {
                         error!(?e, "could not transform image");
                         eyre!(e)
                     })?;
-                    let mut swapped = array_base;
-                    swapped.swap_axes(0, 1);
-                    Ok(swapped.into())
+                    Ok(array_base.into())
                 }
                 16_u32 => {
                     self.validate_image_data_shape(
@@ -170,16 +168,14 @@ impl QhyccdCamera {
                         .map(|a| u16::from_ne_bytes([a[0], a[1]]))
                         .collect();
                     let array_base = Array3::from_shape_vec(
-                        (image.width as usize, image.height as usize, 1_usize),
+                        (image.height as usize, image.width as usize, 1_usize),
                         data,
                     )
                     .map_err(|e| {
                         error!(?e, "could not transform image");
                         eyre!(e)
                     })?;
-                    let mut swapped = array_base;
-                    swapped.swap_axes(0, 1);
-                    Ok(swapped.into())
+                    Ok(array_base.into())
                 }
                 other => {
                     error!("unsupported bits_per_pixel {:?}", other);
