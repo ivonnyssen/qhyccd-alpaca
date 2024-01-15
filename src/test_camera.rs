@@ -6,7 +6,7 @@ use qhyccd_rs::Control;
 use super::*;
 use crate::mocks::MockCamera;
 use eyre::eyre;
-use ndarray::Array3;
+use ndarray::{array, Array3};
 
 use rstest::*;
 
@@ -2045,13 +2045,14 @@ async fn start_exposure_fail_is_exposing_no_miri() {
     )
 }
 
+#[rustfmt::skip]
 #[rstest]
-#[case(vec![0, 1, 2, 3, 4, 5], 3, 2, 8, 1, Ok(()))] //8bpp
-#[case(Vec::new(), 3, 2, 8, 1, Err(ASCOMError::INVALID_OPERATION))] // invalid vector
-#[case(vec![0, 0, 0, 1, 0, 2, 0, 3, 0, 4, 0, 5], 3, 2, 16, 1, Ok(()))] //16bpp
-#[case(Vec::new(), 3, 2, 16, 1, Err(ASCOMError::INVALID_OPERATION))] //invalid vector
-#[case(vec![0, 0, 0, 1, 0, 2, 0, 3, 0, 4, 0, 5], 3, 2, 16, 2, Err(ASCOMError::INVALID_OPERATION))] //unsupported channel
-#[case(vec![0, 0, 0, 1, 0, 2, 0, 3, 0, 4, 0, 5], 3, 2, 32, 1, Err(ASCOMError::INVALID_OPERATION))] //unsupported bpp
+#[case(vec![0, 1, 2, 3, 4, 5], 3, 2, 8, 1, Ok(()), array![[[0_u8],[3_u8]],[[1_u8],[4_u8]],[[2_u8],[5_u8]]].into())] //8bpp
+#[case(Vec::new(), 3, 2, 8, 1, Err(ASCOMError::INVALID_OPERATION), Array3::<u16>::zeros((1_usize, 1_usize, 3)).into())] // invalid vector
+#[case(vec![0, 0, 1, 0, 2, 0, 3, 0, 4, 0, 5, 0], 3, 2, 16, 1, Ok(()), array![[[0_u16],[3_u16]],[[1_u16],[4_u16]],[[2_u16],[5_u16]]].into())] //16bpp
+#[case(Vec::new(), 3, 2, 16, 1, Err(ASCOMError::INVALID_OPERATION), Array3::<u16>::zeros((1_usize, 1_usize, 3)).into())] //invalid vector
+#[case(vec![0, 0, 1, 0, 2, 0, 3, 0, 4, 0, 5, 0], 3, 2, 16, 2, Err(ASCOMError::INVALID_OPERATION), Array3::<u16>::zeros((1_usize, 1_usize, 3)).into())] //unsupported channel
+#[case(vec![0, 0, 1, 0, 2, 0, 3, 0, 4, 0, 5, 0], 3, 2, 32, 1, Err(ASCOMError::INVALID_OPERATION), Array3::<u16>::zeros((1_usize, 1_usize, 3)).into())] //unsupported bpp*/
 #[tokio::test]
 async fn start_exposure_success_no_miri(
     #[case] data: Vec<u8>,
@@ -2060,6 +2061,7 @@ async fn start_exposure_success_no_miri(
     #[case] bits_per_pixel: u32,
     #[case] channels: u32,
     #[case] expected: ASCOMResult,
+    #[case] expected_image: ImageArray,
 ) {
     //given
     let mut mock = MockCamera::new();
@@ -2106,7 +2108,7 @@ async fn start_exposure_success_no_miri(
     let camera = new_camera(
         mock,
         MockCameraType::WithBinningAndRoiAndCCDInfo {
-            times: 11,
+            times: 12,
             camera_roi: CCDChipArea {
                 start_x: 10,
                 start_y: 20,
@@ -2127,9 +2129,11 @@ async fn start_exposure_success_no_miri(
     );
     //when
     let res = camera.start_exposure(1_f64, true).await;
+    let image = camera.image_array().await;
     //then
     if expected.is_ok() {
-        assert!(res.is_ok())
+        assert!(res.is_ok());
+        assert_eq!(image.unwrap(), expected_image);
     } else {
         assert_eq!(
             res.err().unwrap().to_string(),

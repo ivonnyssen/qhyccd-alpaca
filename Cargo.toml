@@ -17,12 +17,12 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-ascom-alpaca = { version = "1.0.0-beta.1", features = [
+ascom-alpaca = { version = "1.0.0-beta.3", features = [
   "server",
   "camera",
   "filterwheel",
 ] }
-async-trait = "0.1.75"
+async-trait = "0.1.77"
 custom_debug = "0.5.1"
 eyre = "0.6.11"
 qhyccd-rs = "0.1.5"
@@ -33,11 +33,8 @@ tokio = { version = "1.35.1", features = ["rt-multi-thread", "macros"] }
 tracing = { version = "0.1.40", features = ["attributes"] }
 tracing-subscriber = "0.3.18"
 cfg-if = "1.0.0"
-educe = "0.5.9"
-clap = { version = "4.4.13", features = ["derive"] }
-
-# to make minimal-versions happy
-mediatype = "0.19.16"
+educe = "0.5.11"
+clap = { version = "4.4.17", features = ["derive"] }
 
 [dev-dependencies]
 mockall = { version = "0.12.1", features = [] }

@@ -41,39 +41,6 @@ jobs:
       # https://github.com/rust-lang/cargo/issues/6669
       # - name: cargo test --doc
       #  run: cargo test --locked --all-features --doc
-  raspberry-pi:
-    runs-on: self-hosted
-    name: raspberry / ${{ matrix.toolchain }}
-    strategy:
-      matrix:
-        toolchain: [stable, beta]
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: true
-      - name: Install build toolchain
-        run: sudo apt-get install make cmake build-essential -y
-      - name: Install libusb
-        run: sudo apt-get install libusb-1.0-0-dev -y
-      - name: Install qhyccd sdk
-        run: |
-          wget https://www.qhyccd.com/file/repository/publish/SDK/230906/sdk_Arm64_23.09.06.tgz
-          tar xzvf sdk_Arm64_23.09.06.tgz
-          cd sdk_Arm64_23.09.06/
-          sudo sh install.sh
-      - name: Install ${{ matrix.toolchain }}
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: ${{ matrix.toolchain }}
-      - name: cargo generate-lockfile
-        if: hashFiles('Cargo.lock') == ''
-        run: cargo generate-lockfile
-      # https://twitter.com/jonhoo/status/1571290371124260865
-      - name: cargo test --locked
-        run: cargo test --locked --all-features --all-targets
-      # https://github.com/rust-lang/cargo/issues/6669
-      # - name: cargo test --doc
-      #  run: cargo test --locked --all-features --doc
   minimal:
     runs-on: ubuntu-latest
     name: ubuntu / stable / minimal-versions

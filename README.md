@@ -20,7 +20,7 @@ ASCOM Alpaca driver for QHYCCD cameras and filter wheels written in Rust.
 | ------------ | ------ |
 | QHY5III290C  | Passed |
 | QHY5III178M  | Failed - exposure fails with error code 0x2001 |
-| QHY178M     | Passed |
+| QHY178M      | Passed |
 | QHY600M      | Passed |
 
 ### Tested Filter Wheels
@@ -77,14 +77,14 @@ cd target/release
 
 ## Rust version requirements
 
-qhyccd-alpaca-rs works with stable Rust. The minimum required Rust version is 1.70.0.
+qhyccd-alpaca-rs works with stable Rust. The minimum required Rust version is 1.75.0.
 
 ## Missing features
 
 - LiveMode is not implemented
 - the driver only supports cameras that can transfer 16bit images
-- USB transport speed uses either the fastest or slowest available value,
-nothing in between
+- FastReadout is implemented using the Control::Speed property in the driver, however
+this control is not available on any of my cameras, so it is untested.
 - pulse guiding is not implemented
 - if you find anything else missing or wrong, please open an [issue](https://github.com/ivonnyssen/qhyccd-alpaca-rs/issues/new).
 

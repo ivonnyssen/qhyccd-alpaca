@@ -145,7 +145,7 @@ impl QhyccdCamera {
                     let data: Vec<u8> =
                         image.data[0_usize..image.width as usize * image.height as usize].to_vec();
                     let array_base = Array3::from_shape_vec(
-                        (image.width as usize, image.height as usize, 1_usize),
+                        (image.height as usize, image.width as usize, 1_usize),
                         data,
                     )
                     .map_err(|e| {
@@ -170,7 +170,7 @@ impl QhyccdCamera {
                         .map(|a| u16::from_ne_bytes([a[0], a[1]]))
                         .collect();
                     let array_base = Array3::from_shape_vec(
-                        (image.width as usize, image.height as usize, 1_usize),
+                        (image.height as usize, image.width as usize, 1_usize),
                         data,
                     )
                     .map_err(|e| {
