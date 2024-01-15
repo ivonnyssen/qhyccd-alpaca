@@ -47,7 +47,7 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
   doc:
-    runs-on: ubuntu-latest, self-hosted]
+    runs-on: ubuntu-latest
     name: nightly / doc
     steps:
       - uses: actions/checkout@v4
