@@ -152,7 +152,9 @@ impl QhyccdCamera {
                         error!(?e, "could not transform image");
                         eyre!(e)
                     })?;
-                    Ok(array_base.into())
+                    let mut swapped = array_base;
+                    swapped.swap_axes(0, 1);
+                    Ok(swapped.into())
                 }
                 16_u32 => {
                     self.validate_image_data_shape(
@@ -175,7 +177,9 @@ impl QhyccdCamera {
                         error!(?e, "could not transform image");
                         eyre!(e)
                     })?;
-                    Ok(array_base.into())
+                    let mut swapped = array_base;
+                    swapped.swap_axes(0, 1);
+                    Ok(swapped.into())
                 }
                 other => {
                     error!("unsupported bits_per_pixel {:?}", other);
