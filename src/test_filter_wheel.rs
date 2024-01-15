@@ -100,7 +100,7 @@ async fn new_success() {
     );
     assert_eq!(
         filter_wheel.driver_info().await.unwrap(),
-        "qhyccd-alpaca-rs"
+        "qhyccd-alpaca See: https://crates.io/crates/qhyccd-alpaca"
     );
     assert_eq!(
         filter_wheel.driver_version().await.unwrap(),
