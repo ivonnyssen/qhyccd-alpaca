@@ -1,7 +1,6 @@
 # qhyccd-alpaca
 
 [![Crates.io](https://img.shields.io/crates/v/qhyccd-alpaca.svg)](https://crates.io/crates/qhyccd-alpaca)
-[![Documentation](https://docs.rs/qhyccd-alpaca/badge.svg)](https://docs.rs/qhyccd-alpaca/)
 [![Codecov](https://codecov.io/github/ivonnyssen/qhyccd-alpaca/coverage.svg?branch=main)](https://codecov.io/gh/ivonnyssen/qhyccd-alpaca)
 [![Dependency status](https://deps.rs/repo/github/ivonnyssen/qhyccd-alpaca/status.svg)](https://deps.rs/repo/github/ivonnyssen/qhyccd-alpaca)
 
