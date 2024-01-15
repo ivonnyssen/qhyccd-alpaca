@@ -78,6 +78,9 @@ async fn not_connected_asyncs() {
     not_connected! {offset_max()}
     not_connected! {bayer_offset_x()}
     not_connected! {bayer_offset_y()}
+    not_connected! {can_fast_readout()}
+    not_connected! {fast_readout()}
+    not_connected! {set_fast_readout(true)}
 }
 
 enum MockCameraType {
@@ -2925,7 +2928,7 @@ async fn offset_max(
 }
 
 #[rstest]
-#[case(Some(0), Some((0_f64, 1_f64, 0.1_f64)), Ok(true))]
+#[case(Some(0), Some((0_f64, 2_f64, 1_f64)), Ok(true))]
 #[case(Some(0), None, Ok(false))]
 #[case(None, Some((0_f64, 1_f64, 0.1_f64)), Err(ASCOMError::NOT_IMPLEMENTED))]
 #[tokio::test]
@@ -2952,6 +2955,98 @@ async fn can_fast_readout(
     //then
     if res.is_ok() {
         assert_eq!(res.unwrap(), expected.unwrap());
+    } else {
+        assert_eq!(
+            res.err().unwrap().to_string(),
+            expected.err().unwrap().to_string()
+        )
+    }
+}
+
+#[rstest]
+#[case(Some(0), Ok(2_f64), 1, Some((0_f64, 2_f64, 1_f64)), Ok(true))]
+#[case(Some(0), Ok(0_f64), 1, Some((0_f64, 2_f64, 1_f64)), Ok(false))]
+#[case(Some(0), Err(eyre!("error")), 1, Some((0_f64, 2_f64, 1_f64)), Err(ASCOMError::UNSPECIFIED))]
+#[case(Some(0), Ok(0_f64), 1, None, Err(ASCOMError::UNSPECIFIED))]
+#[case(None, Ok(0_f64), 0, None, Err(ASCOMError::NOT_IMPLEMENTED))]
+#[tokio::test]
+async fn fast_readout(
+    #[case] is_control_available: Option<u32>,
+    #[case] get_parameter: Result<f64>,
+    #[case] get_parameter_times: usize,
+    #[case] min_max_step: Option<(f64, f64, f64)>,
+    #[case] expected: ASCOMResult<bool>,
+) {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_is_control_available()
+        .once()
+        .withf(|control| *control == qhyccd_rs::Control::Speed)
+        .return_once(move |_| is_control_available);
+    mock.expect_get_parameter()
+        .times(get_parameter_times)
+        .withf(|control| *control == qhyccd_rs::Control::Speed)
+        .return_once(move |_| get_parameter);
+    let camera = new_camera(
+        mock,
+        MockCameraType::WithReadoutMinMax {
+            times: 1,
+            min_max_step,
+        },
+    );
+    //when
+    let res = camera.fast_readout().await;
+    //then
+    if expected.is_ok() {
+        assert_eq!(res.unwrap(), expected.unwrap());
+    } else {
+        assert_eq!(
+            res.err().unwrap().to_string(),
+            expected.err().unwrap().to_string()
+        )
+    }
+}
+
+#[rstest]
+#[case(true, Some(0), Some((0_f64, 2_f64, 1_f64)), Ok(()), 1, Ok(()))]
+#[case(false, Some(0), Some((0_f64, 2_f64, 1_f64)), Ok(()), 1, Ok(()))]
+#[case(true, None, Some((0_f64, 2_f64, 1_f64)), Ok(()), 0, Err(ASCOMError::NOT_IMPLEMENTED))]
+#[case(true, Some(0), None, Ok(()), 0, Err(ASCOMError::unspecified("camera reports readout speed control available, but min, max values are not set after initialization")))]
+#[case(true, Some(0), Some((0_f64, 2_f64, 1_f64)), Err(eyre!("error")), 1, Err(ASCOMError::UNSPECIFIED))]
+#[tokio::test]
+async fn set_fast_readout(
+    #[case] readout: bool,
+    #[case] is_control_available: Option<u32>,
+    #[case] min_max_step: Option<(f64, f64, f64)>,
+    #[case] set_parameter: Result<()>,
+    #[case] set_parameter_times: usize,
+    #[case] expected: ASCOMResult<()>,
+) {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_is_control_available()
+        .once()
+        .withf(|control| *control == qhyccd_rs::Control::Speed)
+        .return_once(move |_| is_control_available);
+    mock.expect_set_parameter()
+        .times(set_parameter_times)
+        .withf(move |control, speed| {
+            *control == qhyccd_rs::Control::Speed
+                && (*speed - if readout { 2_f64 } else { 0_f64 }).abs() < f64::EPSILON
+        })
+        .return_once(move |_, _| set_parameter);
+    let camera = new_camera(
+        mock,
+        MockCameraType::WithReadoutMinMax {
+            times: 1,
+            min_max_step,
+        },
+    );
+    //when
+    let res = camera.set_fast_readout(readout).await;
+    //then
+    if expected.is_ok() {
+        assert!(res.is_ok());
     } else {
         assert_eq!(
             res.err().unwrap().to_string(),
