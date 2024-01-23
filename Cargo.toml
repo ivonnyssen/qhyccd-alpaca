@@ -23,7 +23,7 @@ ascom-alpaca = { version = "1.0.0-beta.3", features = [
   "filterwheel",
 ] }
 async-trait = "0.1.77"
-custom_debug = "0.5.1"
+custom_debug = "0.6.1"
 eyre = "0.6.11"
 qhyccd-rs = "0.1.5"
 ndarray = "0.15.6"
