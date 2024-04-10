@@ -38,4 +38,4 @@ clap = { version = "4.4.17", features = ["derive"] }
 
 [dev-dependencies]
 mockall = { version = "0.12.1", features = [] }
-rstest = "0.18.2"
+rstest = "0.19.0"
