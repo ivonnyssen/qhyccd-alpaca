@@ -26,7 +26,7 @@ jobs:
         run: |
           wget https://www.qhyccd.com/file/repository/publish/SDK/24.12.26/sdk_linux64_24.12.27.tgz
           tar xzvf sdk_linux64_24.12.27.tgz
-          cd sdk_linux64_24.12.26/
+          cd sdk_linux64_24.12.27/
           sudo sh install.sh
       - name: Install nightly
         uses: dtolnay/rust-toolchain@nightly
