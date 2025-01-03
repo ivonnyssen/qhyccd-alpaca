@@ -1,6 +1,6 @@
 [package]
 name = "qhyccd-alpaca"
-version = "0.1.1"
+version = "0.1.2"
 authors = ["Igor von Nyssen<igor@vonnyssen.com>"]
 license = "MIT OR Apache-2.0"
 readme = "README.md"
@@ -22,20 +22,20 @@ ascom-alpaca = { version = "1.0.0-beta.3", features = [
   "camera",
   "filterwheel",
 ] }
-async-trait = "0.1.77"
-custom_debug = "0.5.1"
-eyre = "0.6.11"
-qhyccd-rs = "0.1.5"
-ndarray = "0.15.6"
-parking_lot = "0.12.1"
-strum = "0.25.0"
-tokio = { version = "1.35.1", features = ["rt-multi-thread", "macros"] }
-tracing = { version = "0.1.40", features = ["attributes"] }
-tracing-subscriber = "0.3.18"
+async-trait = "0.1.84"
+custom_debug = "0.6.2"
+eyre = "0.6.12"
+qhyccd-rs = "0.1.6"
+ndarray = "0.15.6" # TODO: update to 0.16.1 once ascom_alpaca is updated
+parking_lot = "0.12.3"
+strum = "0.26.3"
+tokio = { version = "1.42.0", features = ["rt-multi-thread", "macros"] }
+tracing = { version = "0.1.41", features = ["attributes"] }
+tracing-subscriber = "0.3.19"
 cfg-if = "1.0.0"
-educe = "0.5.11"
-clap = { version = "4.4.17", features = ["derive"] }
+educe = "0.6.0"
+clap = { version = "4.5.23", features = ["derive"] }
 
 [dev-dependencies]
-mockall = { version = "0.12.1", features = [] }
-rstest = "0.18.2"
+mockall = { version = "0.13.1", features = [] }
+rstest = "0.24.0"
