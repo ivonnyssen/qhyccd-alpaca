@@ -10,7 +10,7 @@ documentation = "https://docs.rs/qhyccd-alpaca"
 description = """
 ASCOM Alpaca driver for QHYCCD cameras and filter wheels.
 """
-categories = ["astronomy"]
+categories = ["aerospace"]
 homepage = "https://github.com/ivonnyssen/qhyccd-alpaca/wiki"
 edition = "2021"
 
