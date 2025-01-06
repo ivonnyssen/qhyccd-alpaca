@@ -24,9 +24,9 @@ jobs:
         run: sudo apt-get install libusb-1.0-0-dev
       - name: Install qhyccd sdk
         run: |
-          wget https://www.qhyccd.com/file/repository/publish/SDK/230906/sdk_linux64_23.09.06.tgz
-          tar xzvf sdk_linux64_23.09.06.tgz
-          cd sdk_linux64_23.09.06/
+          wget https://www.qhyccd.com/file/repository/publish/SDK/24.12.26/sdk_linux64_24.12.27.tgz
+          tar xzvf sdk_linux64_24.12.27.tgz
+          cd sdk_linux64_24.12.27/
           sudo sh install.sh
       - name: Install ${{ matrix.toolchain }}
         uses: dtolnay/rust-toolchain@master
@@ -52,9 +52,9 @@ jobs:
         run: sudo apt-get install libusb-1.0-0-dev
       - name: Install qhyccd sdk
         run: |
-          wget https://www.qhyccd.com/file/repository/publish/SDK/230906/sdk_linux64_23.09.06.tgz
-          tar xzvf sdk_linux64_23.09.06.tgz
-          cd sdk_linux64_23.09.06/
+          wget https://www.qhyccd.com/file/repository/publish/SDK/24.12.26/sdk_linux64_24.12.27.tgz
+          tar xzvf sdk_linux64_24.12.27.tgz
+          cd sdk_linux64_24.12.27/
           sudo sh install.sh
       - name: Install stable
         uses: dtolnay/rust-toolchain@stable
@@ -77,9 +77,9 @@ jobs:
         run: sudo apt-get install libusb-1.0-0-dev
       - name: Install qhyccd sdk
         run: |
-          wget https://www.qhyccd.com/file/repository/publish/SDK/230906/sdk_linux64_23.09.06.tgz
-          tar xzvf sdk_linux64_23.09.06.tgz
-          cd sdk_linux64_23.09.06/
+          wget https://www.qhyccd.com/file/repository/publish/SDK/24.12.26/sdk_linux64_24.12.27.tgz
+          tar xzvf sdk_linux64_24.12.27.tgz
+          cd sdk_linux64_24.12.27/
           sudo sh install.sh
       - name: Install stable
         uses: dtolnay/rust-toolchain@stable

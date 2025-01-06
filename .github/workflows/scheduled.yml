@@ -15,7 +15,7 @@ jobs:
   # https://twitter.com/mycoliza/status/1571295690063753218
   nightly:
     runs-on: ubuntu-latest
-    name: ubuntu / nightly
+    name: scheduled / ubuntu / nightly
     steps:
       - uses: actions/checkout@v4
         with:
@@ -24,9 +24,9 @@ jobs:
         run: sudo apt-get install libusb-1.0-0-dev
       - name: Install qhyccd sdk
         run: |
-          wget https://www.qhyccd.com/file/repository/publish/SDK/230906/sdk_linux64_23.09.06.tgz
-          tar xzvf sdk_linux64_23.09.06.tgz
-          cd sdk_linux64_23.09.06/
+          wget https://www.qhyccd.com/file/repository/publish/SDK/24.12.26/sdk_linux64_24.12.27.tgz
+          tar xzvf sdk_linux64_24.12.27.tgz
+          cd sdk_linux64_24.12.27/
           sudo sh install.sh
       - name: Install nightly
         uses: dtolnay/rust-toolchain@nightly
@@ -38,7 +38,7 @@ jobs:
   # https://twitter.com/alcuadrado/status/1571291687837732873
   update:
     runs-on: ubuntu-latest
-    name: ubuntu / beta / updated
+    name: scheduled / ubuntu / beta / updated
     # There's no point running this if no Cargo.lock was checked in in the
     # first place, since we'd just redo what happened in the regular test job.
     # Unfortunately, hashFiles only works in if on steps, so we reepeat it.

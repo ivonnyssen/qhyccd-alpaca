@@ -1,7 +1,6 @@
 #![warn(clippy::integer_division)]
 use core::f64;
 use qhyccd_rs::{CCDChipInfo, ImageData};
-use std::i32;
 use std::time::SystemTime;
 use tokio::sync::RwLock;
 

@@ -10,7 +10,7 @@ ASCOM Alpaca driver for QHYCCD cameras and filter wheels written in Rust.
 
 ### Tested Operating Systems
 
-- Debian 12 (Bookworm) amd64
+- Kubuntu 24.04 LTS amd64
 - Ubunutu 22.04.3 LTS arm64 (Raspberry Pi 4)
 
 ### Tested Cameras
@@ -39,7 +39,7 @@ ASCOM Alpaca driver for QHYCCD cameras and filter wheels written in Rust.
 
 ### Prerequisites
 
-The driver relies on the QHYCCD SDK version 23.09.06 and libusb-1.0.0.
+The driver relies on the QHYCCD SDK version 24.12.26 and libusb-1.0.0.
 The instructions below are for installing from source.
 
 #### Debian / Ubuntu / Raspberry Pi OS
@@ -53,9 +53,9 @@ sudo apt-get install -y make cmake build-essential libusb-1.0-0-dev
 ##### Install QHYCCD SDK
 
 ```bash
-wget https://www.qhyccd.com/file/repository/publish/SDK/230906/sdk_Arm64_23.09.06.tgz
-tar xzvf sdk_Arm64_23.09.06.tgz 
-cd sdk_Arm64_23.09.06/
+wget https://www.qhyccd.com/file/repository/publish/SDK/24.12.26/sdk_Arm64_24.12.26.tgz
+tar xzvf sdk_Arm64_24.12.26.tgz 
+cd sdk_Arm64_24.12.26/
 sudo sh install.sh
 ```
 
@@ -76,7 +76,7 @@ cd target/release
 
 ## Rust version requirements
 
-qhyccd-alpaca works with stable Rust. The minimum required Rust version is 1.75.0.
+qhyccd-alpaca works with stable Rust. The minimum required Rust version is 1.81.0.
 
 ## Missing features
 
