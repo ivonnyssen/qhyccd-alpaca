@@ -4,9 +4,8 @@ use qhyccd_rs::{CCDChipInfo, ImageData};
 use std::time::SystemTime;
 use tokio::sync::RwLock;
 
-use ascom_alpaca::api::{
-    Camera, CameraState, CargoServerInfo, Device, FilterWheel, ImageArray, SensorType,
-};
+use ascom_alpaca::api::camera::{CameraState, ImageArray, SensorType};
+use ascom_alpaca::api::{Camera, CargoServerInfo, Device, FilterWheel};
 use ascom_alpaca::{ASCOMError, ASCOMResult, Server};
 use async_trait::async_trait;
 
@@ -415,7 +414,7 @@ impl Camera for QhyccdCamera {
             Some(model) => Ok(model.to_string()),
             None => {
                 error!("camera id should be MODEL-SerialNumber, but split failed");
-                Err(ASCOMError::UNSPECIFIED)
+                Err(ASCOMError::INVALID_OPERATION)
             }
         }
     }
@@ -477,7 +476,7 @@ impl Camera for QhyccdCamera {
             .max()
             .ok_or_else(|| {
                 error!("valid_binning_modes is empty");
-                ASCOMError::UNSPECIFIED
+                ASCOMError::INVALID_OPERATION
             })
     }
 
@@ -738,7 +737,7 @@ impl Camera for QhyccdCamera {
             } => {
                 let Ok(remaining) = self.device.get_remaining_exposure_us() else {
                     error!("get_remaining_exposure_us failed");
-                    return Err(ASCOMError::UNSPECIFIED);
+                    return Err(ASCOMError::INVALID_OPERATION);
                 };
 
                 let res = (100_f64 * remaining as f64 / expected_duration_us as f64) as i32;
@@ -752,7 +751,7 @@ impl Camera for QhyccdCamera {
         self.device.get_readout_mode().map_or_else(
             |e| {
                 error!(?e, "get_readout_mode failed");
-                Err(ASCOMError::UNSPECIFIED)
+                Err(ASCOMError::INVALID_OPERATION)
             },
             |readout_mode| Ok(readout_mode as i32),
         )
@@ -796,13 +795,13 @@ impl Camera for QhyccdCamera {
         ensure_connected!(self);
         let number = self.device.get_number_of_readout_modes().map_err(|e| {
             error!(?e, "get_number_of_readout_modes failed");
-            ASCOMError::UNSPECIFIED
+            ASCOMError::INVALID_OPERATION
         })?;
         let mut readout_modes = Vec::with_capacity(number as usize);
         for i in 0..number {
             let readout_mode = self.device.get_readout_mode_name(i).map_err(|e| {
                 error!(?e, "get_readout_mode failed");
-                ASCOMError::UNSPECIFIED
+                ASCOMError::INVALID_OPERATION
             })?;
             readout_modes.push(readout_mode);
         }
@@ -889,24 +888,24 @@ impl Camera for QhyccdCamera {
             .set_parameter(qhyccd_rs::Control::Exposure, exposure_us as f64)
             .map_err(|e| {
                 error!(?e, "failed to set exposure time: {:?}", e);
-                ASCOMError::UNSPECIFIED
+                ASCOMError::INVALID_OPERATION
             })?;
 
         let device = self.device.clone();
         let image = task::spawn_blocking(move || {
             device.start_single_frame_exposure().map_err(|e| {
                 error!(?e, "failed to stop exposure: {:?}", e);
-                ASCOMError::UNSPECIFIED
+                ASCOMError::INVALID_OPERATION
             })?;
             let buffer_size = device.get_image_size().map_err(|e| {
                 error!(?e, "get_image_size failed");
-                ASCOMError::UNSPECIFIED
+                ASCOMError::INVALID_OPERATION
             })?;
             debug!(?buffer_size);
 
             let image = device.get_single_frame(buffer_size).map_err(|e| {
                 error!(?e, "get_single_frame failed");
-                ASCOMError::UNSPECIFIED
+                ASCOMError::INVALID_OPERATION
             })?;
             Ok::<ImageData, ascom_alpaca::ASCOMError>(image)
         });
@@ -917,7 +916,7 @@ impl Camera for QhyccdCamera {
                     Ok(image_result) => {
                         let Ok(image) = image_result else {
                             error!("failed to get image");
-                            return Err(ASCOMError::UNSPECIFIED);
+                            return Err(ASCOMError::INVALID_OPERATION);
                         };
                         let  mut lock = self.last_image.write().await;
                         *lock = Some(self.transform_image(image).map_err(|e| {
@@ -928,13 +927,13 @@ impl Camera for QhyccdCamera {
                     }
                     Err(e) => {
                         error!(?e, "failed to get image");
-                        return Err(ASCOMError::UNSPECIFIED);
+                        return Err(ASCOMError::INVALID_OPERATION);
                     }
                 }
             },
             _ = stop => self.device.abort_exposure_and_readout().map_err(|e|{
                         error!(?e, "failed to stop exposure: {:?}", e);
-                        ASCOMError::UNSPECIFIED })?,
+                        ASCOMError::INVALID_OPERATION })?,
         }
         *lock = State::Idle;
         Ok(())
@@ -957,7 +956,7 @@ impl Camera for QhyccdCamera {
                 Ok(_) => Ok(()),
                 Err(e) => {
                     error!(?e, "stop_exposure failed");
-                    Err(ASCOMError::UNSPECIFIED)
+                    Err(ASCOMError::INVALID_OPERATION)
                 }
             },
             _ => {
@@ -971,7 +970,7 @@ impl Camera for QhyccdCamera {
         ensure_connected!(self);
         self.device.abort_exposure_and_readout().map_err(|e| {
             error!(?e, "stop_exposure failed");
-            ASCOMError::UNSPECIFIED
+            ASCOMError::INVALID_OPERATION
         })
     }
 
@@ -1060,7 +1059,7 @@ impl Camera for QhyccdCamera {
             }
             Err(e) => {
                 error!(?e, "could not set target temperature");
-                Err(ASCOMError::UNSPECIFIED)
+                Err(ASCOMError::INVALID_OPERATION)
             }
         }
     }
@@ -1137,7 +1136,7 @@ impl Camera for QhyccdCamera {
             .map_or_else(
                 |e| {
                     error!(?e, "failed to set gain");
-                    Err(ASCOMError::UNSPECIFIED)
+                    Err(ASCOMError::INVALID_OPERATION)
                 },
                 |gain| Ok(gain as i32),
             )
@@ -1155,7 +1154,7 @@ impl Camera for QhyccdCamera {
                         .gain_min_max
                         .read()
                         .await
-                        .ok_or(ASCOMError::unspecified("camera reports gain control available, but min, max values are not set after initialization"))?;
+                        .ok_or(ASCOMError::invalid_operation("camera reports gain control available, but min, max values are not set after initialization"))?;
         if !(min as i32..=max as i32).contains(&gain) {
             return Err(ASCOMError::INVALID_VALUE);
         }
@@ -1163,7 +1162,7 @@ impl Camera for QhyccdCamera {
             .set_parameter(qhyccd_rs::Control::Gain, gain as f64)
             .map_err(|e| {
                 error!(?e, "failed to set gain");
-                ASCOMError::UNSPECIFIED
+                ASCOMError::INVALID_OPERATION
             })
     }
 
@@ -1198,7 +1197,7 @@ impl Camera for QhyccdCamera {
             .map_or_else(
                 |e| {
                     error!(?e, "failed to get offset");
-                    Err(ASCOMError::UNSPECIFIED)
+                    Err(ASCOMError::INVALID_OPERATION)
                 },
                 |offset| Ok(offset as i32),
             )
@@ -1216,7 +1215,7 @@ impl Camera for QhyccdCamera {
                         .offset_min_max
                         .read()
                         .await
-                        .ok_or(ASCOMError::unspecified("camera reports offset control available, but min, max values are not set after initialization"))?;
+                        .ok_or(ASCOMError::invalid_operation("camera reports offset control available, but min, max values are not set after initialization"))?;
         if !(min as i32..=max as i32).contains(&offset) {
             return Err(ASCOMError::INVALID_VALUE);
         }
@@ -1224,7 +1223,7 @@ impl Camera for QhyccdCamera {
             .set_parameter(qhyccd_rs::Control::Offset, offset as f64)
             .map_err(|e| {
                 error!(?e, "failed to set offset");
-                ASCOMError::UNSPECIFIED
+                ASCOMError::INVALID_OPERATION
             })
     }
 
@@ -1270,7 +1269,7 @@ impl Camera for QhyccdCamera {
             .get_parameter(qhyccd_rs::Control::Speed)
             .map_err(|e| {
                 error!(?e, "failed to get speed value");
-                ASCOMError::UNSPECIFIED
+                ASCOMError::INVALID_OPERATION
             })?;
         let (_min, max, _step) = self
             .readout_speed_min_max_step
@@ -1278,7 +1277,7 @@ impl Camera for QhyccdCamera {
             .await
             .ok_or_else(|| {
                 error!("readout speed available, but min, max not set");
-                ASCOMError::UNSPECIFIED
+                ASCOMError::INVALID_OPERATION
             })?;
         if (speed - max).abs() < f64::EPSILON {
             return Ok(true);
@@ -1298,7 +1297,7 @@ impl Camera for QhyccdCamera {
                         .readout_speed_min_max_step
                         .read()
                         .await
-                        .ok_or(ASCOMError::unspecified("camera reports readout speed control available, but min, max values are not set after initialization"))?;
+                        .ok_or(ASCOMError::invalid_operation("camera reports readout speed control available, but min, max values are not set after initialization"))?;
         let speed = match fast_readout {
             true => max,
             false => min,
@@ -1307,7 +1306,7 @@ impl Camera for QhyccdCamera {
             .set_parameter(qhyccd_rs::Control::Speed, speed)
             .map_err(|e| {
                 error!(?e, "failed to set speed");
-                ASCOMError::UNSPECIFIED
+                ASCOMError::INVALID_OPERATION
             })
     }
 }
@@ -1417,7 +1416,7 @@ impl FilterWheel for QhyccdFilterWheel {
         };
         let actual = self.device.get_fw_position().map_err(|e| {
             error!(?e, "get_fw_position failed");
-            ASCOMError::UNSPECIFIED
+            ASCOMError::INVALID_OPERATION
         })?;
         match actual == target_position {
             true => Ok(actual as i32),
@@ -1448,7 +1447,7 @@ impl FilterWheel for QhyccdFilterWheel {
         self.device.set_fw_position(position as u32).map_or_else(
             |e| {
                 error!(?e, "set_fw_position failed");
-                Err(ASCOMError::UNSPECIFIED)
+                Err(ASCOMError::INVALID_OPERATION)
             },
             |_| {
                 *lock = Some(position as u32);
@@ -1513,10 +1512,7 @@ async fn main() -> eyre::Result<std::convert::Infallible> {
         }
     }
 
-    let mut server = Server {
-        info: CargoServerInfo!(),
-        ..Default::default()
-    };
+    let mut server = Server::new(CargoServerInfo!());
 
     server.listen_addr.set_port(port);
 

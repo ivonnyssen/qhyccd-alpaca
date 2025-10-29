@@ -372,7 +372,11 @@ async fn qhyccd_camera() {
 
 #[rstest]
 #[case(true, Ok(8), Ok(8))]
-#[case(false, Err(ASCOMError::UNSPECIFIED), Err(ASCOMError::UNSPECIFIED))]
+#[case(
+    false,
+    Err(ASCOMError::INVALID_OPERATION),
+    Err(ASCOMError::INVALID_OPERATION)
+)]
 #[tokio::test]
 async fn max_bin_xy(
     #[case] has_modes: bool,
@@ -1633,7 +1637,7 @@ async fn set_num_y(
 #[case(Ok(10_000_u32), 0, State::Idle {}, Ok(100_i32))]
 #[case(Ok(std::u32::MIN), 1, State::Exposing { start: SystemTime::UNIX_EPOCH, expected_duration_us: 0_u32, stop_tx: None, done_rx: watch::channel(false).1, }, Ok(0_i32))]
 #[case(Ok(std::u32::MAX), 1, State::Exposing { start: SystemTime::UNIX_EPOCH, expected_duration_us: 0_u32, stop_tx: None, done_rx: watch::channel(false).1, }, Ok(100_i32))]
-#[case(Err(eyre!("error")), 1, State::Exposing { start: SystemTime::UNIX_EPOCH, expected_duration_us: 10_000_u32, stop_tx: None, done_rx: watch::channel(false).1, }, Err(ASCOMError::UNSPECIFIED))]
+#[case(Err(eyre!("error")), 1, State::Exposing { start: SystemTime::UNIX_EPOCH, expected_duration_us: 10_000_u32, stop_tx: None, done_rx: watch::channel(false).1, }, Err(ASCOMError::INVALID_OPERATION))]
 #[tokio::test]
 async fn percent_completed(
     #[case] remaining_exposure_us: Result<u32>,
@@ -1662,7 +1666,7 @@ async fn percent_completed(
 
 #[rstest]
 #[case(Ok(2), Ok(2_i32))]
-#[case(Err(eyre!("error")), Err(ASCOMError::UNSPECIFIED))]
+#[case(Err(eyre!("error")), Err(ASCOMError::INVALID_OPERATION))]
 #[tokio::test]
 async fn readout_mode_success(
     #[case] readout_mode: Result<u32>,
@@ -1752,8 +1756,8 @@ async fn set_readout_mode(
 
 #[rstest]
 #[case(Ok(1_u32), Ok("Standard Mode".to_string()), 1, Ok(vec!["Standard Mode".to_string()]))]
-#[case(Err(eyre!("error")), Ok("Standard Mode".to_string()), 0, Err(ASCOMError::UNSPECIFIED))]
-#[case(Ok(1_u32), Err(eyre!("error")), 1, Err(ASCOMError::UNSPECIFIED))]
+#[case(Err(eyre!("error")), Ok("Standard Mode".to_string()), 0, Err(ASCOMError::INVALID_OPERATION))]
+#[case(Ok(1_u32), Err(eyre!("error")), 1, Err(ASCOMError::INVALID_OPERATION))]
 #[tokio::test]
 async fn readout_modes(
     #[case] number_of_readout_modes: Result<u32>,
@@ -1830,7 +1834,7 @@ async fn stop_abort() {
 
 #[rstest]
 #[case(Ok(()), Ok(()))]
-#[case(Err(eyre!("error")), Err(ASCOMError::UNSPECIFIED))]
+#[case(Err(eyre!("error")), Err(ASCOMError::INVALID_OPERATION))]
 #[tokio::test]
 async fn abort_exposure(#[case] readout: Result<()>, #[case] expected: ASCOMResult<()>) {
     //given
@@ -2149,10 +2153,10 @@ async fn start_exposure_success_no_miri(
 #[rstest]
 #[case(true, true, 1, true, 1, true, 1, true, 1, 1, Ok(()))]
 #[case(false, true, 0, true, 0, true, 0, true, 0, 0, Err(ASCOMError::invalid_value("failed to set ROI")))]
-#[case(true, false, 1, true, 0, true, 0, true, 0, 0, Err(ASCOMError::UNSPECIFIED))]
-#[case(true, true, 1, false, 1, true, 1, true, 1, 1, Err(ASCOMError::UNSPECIFIED))]
-#[case(true, true, 1, true, 1, false, 1, true, 0, 1, Err(ASCOMError::UNSPECIFIED))]
-#[case(true, true, 1, true, 1, true, 1, false, 1, 1, Err(ASCOMError::UNSPECIFIED))]
+#[case(true, false, 1, true, 0, true, 0, true, 0, 0, Err(ASCOMError::INVALID_OPERATION))]
+#[case(true, true, 1, false, 1, true, 1, true, 1, 1, Err(ASCOMError::INVALID_OPERATION))]
+#[case(true, true, 1, true, 1, false, 1, true, 0, 1, Err(ASCOMError::INVALID_OPERATION))]
+#[case(true, true, 1, true, 1, true, 1, false, 1, 1, Err(ASCOMError::INVALID_OPERATION))]
 #[tokio::test]
 async fn start_exposure_fail_no_miri(
     #[case] set_roi_ok: bool,
@@ -2595,7 +2599,7 @@ async fn set_ccd_temperature(
 #[case(true, 1, 1, -2_f64, Ok(()), 1, Ok(()))]
 #[case(true, 0, 0, -300_f64, Ok(()), 0, Err(ASCOMError::INVALID_VALUE))]
 #[case(true, 0, 0, 81_f64, Ok(()), 0, Err(ASCOMError::INVALID_VALUE))]
-#[case(true, 1, 1, -2_f64, Err(eyre!("error")), 1, Err(ASCOMError::UNSPECIFIED))]
+#[case(true, 1, 1, -2_f64, Err(eyre!("error")), 1, Err(ASCOMError::INVALID_OPERATION))]
 #[case(false, 1, 1, -2_f64, Ok(()), 0, Err(ASCOMError::NOT_IMPLEMENTED))]
 #[tokio::test]
 async fn set_set_ccd_temperature(
@@ -2640,7 +2644,7 @@ async fn set_set_ccd_temperature(
 
 #[rstest]
 #[case(true, 1, 1, Ok(25_f64), 1, Ok(25_i32))]
-#[case(true, 1, 1, Err(eyre!("error")), 1, Err(ASCOMError::UNSPECIFIED))]
+#[case(true, 1, 1, Err(eyre!("error")), 1, Err(ASCOMError::INVALID_OPERATION))]
 #[case(false, 1, 1, Ok(25_f64), 0, Err(ASCOMError::NOT_IMPLEMENTED))]
 #[tokio::test]
 async fn gain(
@@ -2677,10 +2681,10 @@ async fn gain(
 
 #[rstest]
 #[case(50_i32, true, 1, 1, Some((0_f64,  51_f64)), Ok(()), 1, Ok(()))]
-#[case(50_i32, true, 1, 1, None, Ok(()), 0, Err(ASCOMError::unspecified("camera reports gain control available, but min, max values are not set after initialization")))]
+#[case(50_i32, true, 1, 1, None, Ok(()), 0, Err(ASCOMError::invalid_operation("camera reports gain control available, but min, max values are not set after initialization")))]
 #[case(-50_i32, true, 1, 1, Some((0_f64,  51_f64)), Ok(()), 0, Err(ASCOMError::INVALID_VALUE))]
 #[case(50_i32, false, 1, 1, Some((0_f64,  51_f64)), Ok(()), 0, Err(ASCOMError::NOT_IMPLEMENTED))]
-#[case(50_i32, true, 1, 1, Some((0_f64,  51_f64)), Err(eyre!("error")), 1, Err(ASCOMError::UNSPECIFIED))]
+#[case(50_i32, true, 1, 1, Some((0_f64,  51_f64)), Err(eyre!("error")), 1, Err(ASCOMError::INVALID_OPERATION))]
 #[tokio::test]
 async fn set_gain(
     #[case] gain: i32,
@@ -2788,7 +2792,7 @@ async fn gain_max(
 
 #[rstest]
 #[case(true, 1, 1, Ok(25_f64), 1, Ok(25_i32))]
-#[case(true, 1, 1, Err(eyre!("error")), 1, Err(ASCOMError::UNSPECIFIED))]
+#[case(true, 1, 1, Err(eyre!("error")), 1, Err(ASCOMError::INVALID_OPERATION))]
 #[case(false, 1, 1, Ok(25_f64), 0, Err(ASCOMError::NOT_IMPLEMENTED))]
 #[tokio::test]
 async fn offset(
@@ -2825,10 +2829,10 @@ async fn offset(
 
 #[rstest]
 #[case(250_i32, true, 1, 1, Some((0_f64,  1023_f64)), Ok(()), 1, Ok(()))]
-#[case(250_i32, true, 1, 1, None, Ok(()), 0, Err(ASCOMError::unspecified("camera reports offset control available, but min, max values are not set after initialization")))]
+#[case(250_i32, true, 1, 1, None, Ok(()), 0, Err(ASCOMError::invalid_operation("camera reports offset control available, but min, max values are not set after initialization")))]
 #[case(-250_i32, true, 1, 1, Some((0_f64,  1023_f64)), Ok(()), 0, Err(ASCOMError::INVALID_VALUE))]
 #[case(250_i32, false, 1, 1, Some((0_f64,  1023_f64)), Ok(()), 0, Err(ASCOMError::NOT_IMPLEMENTED))]
-#[case(250_i32, true, 1, 1, Some((0_f64,  1023_f64)), Err(eyre!("error")), 1, Err(ASCOMError::UNSPECIFIED))]
+#[case(250_i32, true, 1, 1, Some((0_f64,  1023_f64)), Err(eyre!("error")), 1, Err(ASCOMError::INVALID_OPERATION))]
 #[tokio::test]
 async fn set_offset(
     #[case] offset: i32,
@@ -2973,8 +2977,8 @@ async fn can_fast_readout(
 #[rstest]
 #[case(Some(0), Ok(2_f64), 1, Some((0_f64, 2_f64, 1_f64)), Ok(true))]
 #[case(Some(0), Ok(0_f64), 1, Some((0_f64, 2_f64, 1_f64)), Ok(false))]
-#[case(Some(0), Err(eyre!("error")), 1, Some((0_f64, 2_f64, 1_f64)), Err(ASCOMError::UNSPECIFIED))]
-#[case(Some(0), Ok(0_f64), 1, None, Err(ASCOMError::UNSPECIFIED))]
+#[case(Some(0), Err(eyre!("error")), 1, Some((0_f64, 2_f64, 1_f64)), Err(ASCOMError::INVALID_OPERATION))]
+#[case(Some(0), Ok(0_f64), 1, None, Err(ASCOMError::INVALID_OPERATION))]
 #[case(None, Ok(0_f64), 0, None, Err(ASCOMError::NOT_IMPLEMENTED))]
 #[tokio::test]
 async fn fast_readout(
@@ -3018,8 +3022,8 @@ async fn fast_readout(
 #[case(true, Some(0), Some((0_f64, 2_f64, 1_f64)), Ok(()), 1, Ok(()))]
 #[case(false, Some(0), Some((0_f64, 2_f64, 1_f64)), Ok(()), 1, Ok(()))]
 #[case(true, None, Some((0_f64, 2_f64, 1_f64)), Ok(()), 0, Err(ASCOMError::NOT_IMPLEMENTED))]
-#[case(true, Some(0), None, Ok(()), 0, Err(ASCOMError::unspecified("camera reports readout speed control available, but min, max values are not set after initialization")))]
-#[case(true, Some(0), Some((0_f64, 2_f64, 1_f64)), Err(eyre!("error")), 1, Err(ASCOMError::UNSPECIFIED))]
+#[case(true, Some(0), None, Ok(()), 0, Err(ASCOMError::invalid_operation("camera reports readout speed control available, but min, max values are not set after initialization")))]
+#[case(true, Some(0), Some((0_f64, 2_f64, 1_f64)), Err(eyre!("error")), 1, Err(ASCOMError::INVALID_OPERATION))]
 #[tokio::test]
 async fn set_fast_readout(
     #[case] readout: bool,

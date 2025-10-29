@@ -359,7 +359,7 @@ async fn get_position_fail_get_fw_position() {
     //then
     assert_eq!(
         res.err().unwrap().to_string(),
-        ASCOMError::UNSPECIFIED.to_string()
+        ASCOMError::INVALID_OPERATION.to_string()
     );
 }
 
@@ -484,6 +484,6 @@ async fn set_position_fail_set_fw_position() {
     //then
     assert_eq!(
         res.err().unwrap().to_string(),
-        ASCOMError::UNSPECIFIED.to_string()
+        ASCOMError::INVALID_OPERATION.to_string()
     );
 }
