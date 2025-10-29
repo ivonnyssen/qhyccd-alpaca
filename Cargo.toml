@@ -17,16 +17,16 @@ edition = "2024"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-ascom-alpaca = { version = "1.0.0-beta.3", features = [
+ascom-alpaca = { version = "1.0.0-beta.6", features = [
   "server",
   "camera",
-  "filterwheel",
+  "filter_wheel",
 ] }
 async-trait = "0.1.85"
 custom_debug = "0.6.2"
 eyre = "0.6.12"
 qhyccd-rs = "0.1.6"
-ndarray = "0.16.1" # TODO: update to 0.16.1 once ascom_alpaca is updated
+ndarray = "0.16.1"
 parking_lot = "0.12.3"
 strum = "0.27.2"
 tokio = { version = "1.43.0", features = ["rt-multi-thread", "macros"] }
