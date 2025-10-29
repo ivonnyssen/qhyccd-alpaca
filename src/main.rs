@@ -10,7 +10,7 @@ use ascom_alpaca::api::{
 use ascom_alpaca::{ASCOMError, ASCOMResult, Server};
 use async_trait::async_trait;
 
-use eyre::{eyre, Result};
+use eyre::{Result, eyre};
 use ndarray::Array3;
 
 #[macro_use]
@@ -114,19 +114,16 @@ impl QhyccdCamera {
             true => Ok(()),
             false => {
                 error!(
-                        "image data length ({}) does not match width ({}) * height ({}) * bytes_per_pixel ({})",
-                        data_length,
-                        width,
-                        height,
-                        bytes_per_pixel
-                    );
+                    "image data length ({}) does not match width ({}) * height ({}) * bytes_per_pixel ({})",
+                    data_length, width, height, bytes_per_pixel
+                );
                 Err(eyre!(
-                        "image data length ({}) does not match width ({}) * height ({}) * bytes_per_pixel ({})",
-                        data_length,
-                        width,
-                        height,
-                        bytes_per_pixel
-                    ))
+                    "image data length ({}) does not match width ({}) * height ({}) * bytes_per_pixel ({})",
+                    data_length,
+                    width,
+                    height,
+                    bytes_per_pixel
+                ))
             }
         }
     }
@@ -745,11 +742,7 @@ impl Camera for QhyccdCamera {
                 };
 
                 let res = (100_f64 * remaining as f64 / expected_duration_us as f64) as i32;
-                if res > 100_i32 {
-                    Ok(100_i32)
-                } else {
-                    Ok(res)
-                }
+                if res > 100_i32 { Ok(100_i32) } else { Ok(res) }
             }
         }
     }
@@ -1431,8 +1424,7 @@ impl FilterWheel for QhyccdFilterWheel {
             false => {
                 trace!(
                     "position - target_position set to {}, but filter wheel is at {}",
-                    target_position,
-                    actual
+                    target_position, actual
                 );
                 Ok(-1)
             }
