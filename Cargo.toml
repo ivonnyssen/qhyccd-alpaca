@@ -28,7 +28,7 @@ eyre = "0.6.12"
 qhyccd-rs = "0.1.6"
 ndarray = "0.16.1" # TODO: update to 0.16.1 once ascom_alpaca is updated
 parking_lot = "0.12.3"
-strum = "0.26.3"
+strum = "0.27.2"
 tokio = { version = "1.43.0", features = ["rt-multi-thread", "macros"] }
 tracing = { version = "0.1.41", features = ["attributes"] }
 tracing-subscriber = "0.3.19"
