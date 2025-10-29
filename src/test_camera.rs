@@ -6,7 +6,7 @@ use qhyccd_rs::Control;
 use super::*;
 use crate::mocks::MockCamera;
 use eyre::eyre;
-use ndarray::{array, Array3};
+use ndarray::{Array3, array};
 
 use rstest::*;
 
