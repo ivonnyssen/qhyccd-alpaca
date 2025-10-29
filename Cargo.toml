@@ -4,7 +4,14 @@ version = "0.1.3"
 authors = ["Igor von Nyssen<igor@vonnyssen.com>"]
 license = "MIT OR Apache-2.0"
 readme = "README.md"
-keywords = ["qhyccd", "astronomy", "camera", "ASCOM", "alpaca"]
+keywords = [
+  "qhyccd",
+  "astronomy",
+  "camera",
+  "ASCOM",
+  "alpaca",
+  "astrophotography",
+]
 repository = "https://github.com/ivonnyssen/qhyccd-alpaca"
 documentation = "https://docs.rs/qhyccd-alpaca"
 description = """
@@ -13,6 +20,7 @@ ASCOM Alpaca driver for QHYCCD cameras and filter wheels.
 categories = ["aerospace"]
 homepage = "https://github.com/ivonnyssen/qhyccd-alpaca/wiki"
 edition = "2024"
+exclude = ["/.github", "/.vscode"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
