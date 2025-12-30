@@ -46,6 +46,7 @@ clap = { version = "4.5.51", features = ["derive"] }
 
 #to make minimal versions happy
 time = "0.3.44"
+bytes = "1.7.0"
 
 [dev-dependencies]
 mockall = { version = "0.13.1", features = [] }
