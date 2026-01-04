@@ -4,6 +4,8 @@
 
 The qhyccd-alpaca project is an ASCOM Alpaca driver for QHYCCD cameras and filter wheels, written in Rust. It provides a bridge between QHYCCD hardware and ASCOM-compatible astronomy software through the Alpaca REST API protocol.
 
+**Note: This crate provides only driver binaries, not library APIs. It is designed as a standalone application that implements the ASCOM Alpaca protocol.**
+
 ## Architecture
 
 ```mermaid
