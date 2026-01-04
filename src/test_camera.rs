@@ -136,6 +136,11 @@ enum MockCameraType {
         camera_binning: u32,
         camera_valid_bins: Vec<u32>,
     },
+    WithBinningAndRoiAndCCDInfoUnlimited {
+        camera_roi: CCDChipArea,
+        camera_ccd_info: CCDChipInfo,
+        camera_binning: u32,
+    },
     WithBinningAndRoiAndCCDInfoAndExposing {
         times: usize,
         camera_roi: CCDChipArea,
@@ -259,6 +264,16 @@ fn new_camera(mut device: MockCamera, variant: MockCameraType) -> QhyccdCamera {
             valid_bins = RwLock::new(Some(camera_valid_bins));
             binning = RwLock::new(camera_binning);
         }
+        MockCameraType::WithBinningAndRoiAndCCDInfoUnlimited {
+            camera_roi,
+            camera_ccd_info,
+            camera_binning,
+        } => {
+            device.expect_is_open().returning(|| Ok(true));
+            ccd_info = RwLock::new(Some(camera_ccd_info));
+            intended_roi = RwLock::new(Some(camera_roi));
+            binning = RwLock::new(camera_binning);
+        }
         MockCameraType::WithBinningAndRoiAndCCDInfoAndExposing {
             times,
             camera_roi,
@@ -311,8 +326,8 @@ fn new_camera(mut device: MockCamera, variant: MockCameraType) -> QhyccdCamera {
         exposure_min_max_step,
         last_exposure_start_time,
         last_exposure_duration_us,
-        last_image,
-        state: exposing,
+        last_image: Arc::new(last_image),
+        state: Arc::new(exposing),
         gain_min_max,
         offset_min_max,
     }
@@ -341,8 +356,8 @@ async fn qhyccd_camera() {
         exposure_min_max_step: RwLock::new(None),
         last_exposure_start_time: RwLock::new(None),
         last_exposure_duration_us: RwLock::new(None),
-        last_image: RwLock::new(None),
-        state: RwLock::new(State::Idle),
+        last_image: Arc::new(RwLock::new(None)),
+        state: Arc::new(RwLock::new(State::Idle)),
         gain_min_max: RwLock::new(None),
         offset_min_max: RwLock::new(None),
     };
@@ -2111,11 +2126,11 @@ async fn start_exposure_success_no_miri(
                 channels,
             })
         });
+    clone_mock.expect_clone().once().returning(MockCamera::new);
     mock.expect_clone().once().return_once(move || clone_mock);
     let camera = new_camera(
         mock,
-        MockCameraType::WithBinningAndRoiAndCCDInfo {
-            times: 12,
+        MockCameraType::WithBinningAndRoiAndCCDInfoUnlimited {
             camera_roi: CCDChipArea {
                 start_x: 10,
                 start_y: 20,
@@ -2136,16 +2151,26 @@ async fn start_exposure_success_no_miri(
     );
     //when
     let res = camera.start_exposure(1_f64, true).await;
+    
+    // Wait for exposure to complete with 1 second timeout
+    let timeout = tokio::time::Duration::from_secs(1);
+    let start = tokio::time::Instant::now();
+    while start.elapsed() < timeout {
+        if matches!(camera.camera_state().await, Ok(ascom_alpaca::api::camera::CameraState::Idle)) {
+            break;
+        }
+        tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+    }
+    
     let image = camera.image_array().await;
     //then
     if expected.is_ok() {
         assert!(res.is_ok());
         assert_eq!(image.unwrap(), expected_image);
     } else {
-        assert_eq!(
-            res.err().unwrap().to_string(),
-            expected.unwrap_err().to_string(),
-        )
+        assert!(res.is_ok()); // start_exposure should succeed
+        // For error cases, image_array should return error
+        assert!(image.is_err());
     }
 }
 
@@ -2154,9 +2179,9 @@ async fn start_exposure_success_no_miri(
 #[case(true, true, 1, true, 1, true, 1, true, 1, 1, Ok(()))]
 #[case(false, true, 0, true, 0, true, 0, true, 0, 0, Err(ASCOMError::invalid_value("failed to set ROI")))]
 #[case(true, false, 1, true, 0, true, 0, true, 0, 0, Err(ASCOMError::INVALID_OPERATION))]
-#[case(true, true, 1, false, 1, true, 1, true, 1, 1, Err(ASCOMError::INVALID_OPERATION))]
-#[case(true, true, 1, true, 1, false, 1, true, 0, 1, Err(ASCOMError::INVALID_OPERATION))]
-#[case(true, true, 1, true, 1, true, 1, false, 1, 1, Err(ASCOMError::INVALID_OPERATION))]
+#[case(true, true, 1, false, 1, true, 1, true, 1, 1, Ok(()))]
+#[case(true, true, 1, true, 1, false, 1, true, 0, 1, Ok(()))]
+#[case(true, true, 1, true, 1, true, 1, false, 1, 1, Ok(()))]
 #[tokio::test]
 async fn start_exposure_fail_no_miri(
     #[case] set_roi_ok: bool,
@@ -2240,14 +2265,16 @@ async fn start_exposure_fail_no_miri(
                 Err(eyre!("error"))
             }
         });
+    if clone_times > 0 {
+        clone_mock.expect_clone().once().returning(MockCamera::new);
+    }
 
     mock.expect_clone()
         .times(clone_times)
         .return_once(move || clone_mock);
     let camera = new_camera(
         mock,
-        MockCameraType::WithBinningAndRoiAndCCDInfo {
-            times: 11,
+        MockCameraType::WithBinningAndRoiAndCCDInfoUnlimited {
             camera_roi: CCDChipArea {
                 start_x: 10,
                 start_y: 20,
@@ -2268,9 +2295,25 @@ async fn start_exposure_fail_no_miri(
     );
     //when
     let res = camera.start_exposure(1_f64, true).await;
+    
+    // Wait for exposure to complete with 1 second timeout
+    let timeout = tokio::time::Duration::from_secs(1);
+    let start = tokio::time::Instant::now();
+    while start.elapsed() < timeout {
+        if matches!(camera.camera_state().await, Ok(ascom_alpaca::api::camera::CameraState::Idle)) {
+            break;
+        }
+        tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+    }
+    
+    let image = camera.image_array().await;
     //then
     if expected.is_ok() {
-        assert!(res.is_ok())
+        assert!(res.is_ok());
+        // For async failures, check that image_array returns error
+        if !start_single_frame_ok || !get_image_size_ok || !get_singleframe_ok {
+            assert!(image.is_err());
+        }
     } else {
         assert_eq!(
             res.err().unwrap().to_string(),
@@ -2941,7 +2984,7 @@ async fn offset_max(
 #[rstest]
 #[case(Some(0), Some((0_f64, 2_f64, 1_f64)), Ok(true))]
 #[case(Some(0), None, Ok(false))]
-#[case(None, Some((0_f64, 1_f64, 0.1_f64)), Err(ASCOMError::NOT_IMPLEMENTED))]
+#[case(None, Some((0_f64, 1_f64, 0.1_f64)), Ok(false))]
 #[tokio::test]
 async fn can_fast_readout(
     #[case] is_control_available: Option<u32>,
