@@ -1247,13 +1247,12 @@ impl Camera for QhyccdCamera {
 
     async fn can_fast_readout(&self) -> ASCOMResult<bool> {
         ensure_connected!(self);
-        self.device
+        // Return true if both Speed control is available AND we have valid min/max/step values
+        Ok(self
+            .device
             .is_control_available(qhyccd_rs::Control::Speed)
-            .ok_or_else(|| {
-                debug!("readout speed control not available");
-                ASCOMError::NOT_IMPLEMENTED
-            })?;
-        Ok(self.readout_speed_min_max_step.read().await.is_some())
+            .is_some()
+            && self.readout_speed_min_max_step.read().await.is_some())
     }
 
     async fn fast_readout(&self) -> ASCOMResult<bool> {

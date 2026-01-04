@@ -1,99 +1,185 @@
-use std::process::Command;
+use ascom_alpaca::api::Camera;
+use ascom_alpaca::test::run_conformu_tests;
 use std::time::Duration;
-use tokio::time::sleep;
+use tokio::process::Command;
+use tokio::time::{sleep, timeout};
+use tracing_subscriber::{EnvFilter, fmt};
 
-#[tokio::test]
-#[ignore]
-async fn test_camera_conformance() {
-    // Start the qhyccd-alpaca server (will fail to initialize hardware but server will start)
-    let mut server = Command::new("cargo")
-        .args(&["run", "--", "--port", "11111"])
-        .spawn()
-        .expect("Failed to start server");
-
-    // Wait for server to start
-    sleep(Duration::from_secs(3)).await;
-
-    // Run ConformU against the local server - expect some failures due to no hardware
-    let output = Command::new("conformu")
-        .args(&[
-            "conformance",
-            "http://localhost:11111/api/v1/camera/0",
-            "--json-report",
-            "conformu_camera_report.json",
-            "--continue-on-error", // Continue testing even if some tests fail
-        ])
-        .output()
-        .expect("Failed to run ConformU");
-
-    // Terminate server
-    server.kill().expect("Failed to kill server");
-
-    // Print output for debugging
-    println!(
-        "ConformU stdout: {}",
-        String::from_utf8_lossy(&output.stdout)
-    );
-    if !output.stderr.is_empty() {
-        println!(
-            "ConformU stderr: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-    }
-
-    // Check if ConformU ran (don't require success due to hardware limitations)
-    assert!(
-        output.status.code().is_some(),
-        "ConformU failed to run properly"
-    );
-
-    // Try to read the report if it was generated
-    if let Ok(report_content) = std::fs::read_to_string("conformu_camera_report.json") {
-        println!("ConformU report generated successfully");
-        // Basic validation that report was generated
-        assert!(report_content.contains("\"DeviceType\": \"Camera\""));
-    } else {
-        println!("ConformU report not generated - this is expected without hardware");
-    }
+fn get_random_port() -> u16 {
+    use std::net::TcpListener;
+    let listener = TcpListener::bind("127.0.0.1:0").expect("Failed to bind to random port");
+    let port = listener
+        .local_addr()
+        .expect("Failed to get local addr")
+        .port();
+    drop(listener);
+    port
 }
 
 #[tokio::test]
-#[ignore]
-async fn test_alpaca_protocol_conformance() {
-    let mut server = Command::new("cargo")
-        .args(&["run", "--", "--port", "11113"])
-        .spawn()
-        .expect("Failed to start server");
+#[ignore] // Run with --ignored flag since it requires ConformU installation
+async fn conformu_camera_compliance_tests() -> Result<(), Box<dyn std::error::Error>> {
+    let _ = fmt()
+        .with_env_filter(
+            EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| EnvFilter::new("ascom_alpaca::conformu=trace,info")),
+        )
+        .with_test_writer()
+        .try_init();
 
-    sleep(Duration::from_secs(3)).await;
+    let port = get_random_port();
 
-    let output = Command::new("conformu")
-        .args(&[
-            "alpacaprotocol",
-            "http://localhost:11113/api/v1/camera/0",
-            "--json-report",
-            "conformu_protocol_report.json",
+    // Start qhyccd-alpaca server with minimal logging
+    let mut child = Command::new("cargo")
+        .args([
+            "run",
+            "--",
+            "--port",
+            &port.to_string(),
+            "--log-level",
+            "error",
         ])
-        .output()
-        .expect("Failed to run ConformU");
+        .stdout(std::process::Stdio::null()) // Suppress stdout
+        .stderr(std::process::Stdio::null()) // Suppress stderr
+        .spawn()?;
 
-    server.kill().expect("Failed to kill server");
-
-    println!(
-        "ConformU stdout: {}",
-        String::from_utf8_lossy(&output.stdout)
-    );
-    if !output.stderr.is_empty() {
-        println!(
-            "ConformU stderr: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
+    // Wait for service to be ready with health check
+    let client = reqwest::Client::new();
+    let mut ready = false;
+    for _ in 0..30 {
+        sleep(Duration::from_secs(1)).await;
+        if let Ok(Ok(resp)) = timeout(
+            Duration::from_secs(2),
+            client
+                .get(format!(
+                    "http://localhost:{}/management/v1/description",
+                    port
+                ))
+                .send(),
+        )
+        .await
+        {
+            if resp.status().is_success() {
+                ready = true;
+                break;
+            }
+        }
     }
 
-    // Protocol testing should be more likely to succeed
-    if output.status.success() {
-        println!("ConformU protocol validation passed!");
-    } else {
-        println!("ConformU protocol validation failed - this may be expected without hardware");
+    if !ready {
+        let _ = child.kill().await;
+        let _ = child.wait().await;
+        return Err("Service failed to start within 30 seconds".into());
     }
+
+    println!("::group::ConformU Camera Compliance Test Results");
+    println!("Running ASCOM Alpaca camera compliance tests...");
+
+    // Run ConformU tests for camera device 0
+    let result = run_conformu_tests::<dyn Camera>(&format!("http://localhost:{}", port), 0).await;
+
+    match &result {
+        Ok(_) => {
+            println!("✅ ConformU camera compliance tests PASSED");
+            println!("All ASCOM Alpaca camera compliance requirements met");
+        }
+        Err(e) => {
+            println!("❌ ConformU camera compliance tests FAILED");
+            println!("Error: {}", e);
+        }
+    }
+
+    println!("::endgroup::");
+
+    // Cleanup
+    let _ = child.kill().await;
+    let _ = child.wait().await;
+
+    result?;
+    Ok(())
 }
+
+// #[tokio::test]
+// #[ignore] // Run with --ignored flag since it requires ConformU installation
+// async fn conformu_filterwheel_compliance_tests() -> Result<(), Box<dyn std::error::Error>> {
+//     let _ = fmt()
+//         .with_env_filter(
+//             EnvFilter::try_from_default_env()
+//                 .unwrap_or_else(|_| EnvFilter::new("ascom_alpaca::conformu=trace,info")),
+//         )
+//         .with_test_writer()
+//         .try_init();
+//
+//     let port = get_random_port();
+//
+//     // Start qhyccd-alpaca server
+//     let mut child = Command::new("cargo")
+//         .args([
+//             "run",
+//             "--",
+//             "--port",
+//             &port.to_string(),
+//             "--log-level",
+//             "debug",
+//         ])
+//         .spawn()?;
+//
+//     // Wait for service to be ready
+//     let client = reqwest::Client::new();
+//     let mut ready = false;
+//     for _ in 0..30 {
+//         sleep(Duration::from_secs(1)).await;
+//         if let Ok(Ok(resp)) = timeout(
+//             Duration::from_secs(2),
+//             client
+//                 .get(format!(
+//                     "http://localhost:{}/management/v1/description",
+//                     port
+//                 ))
+//                 .send(),
+//         )
+//         .await
+//         {
+//             if resp.status().is_success() {
+//                 ready = true;
+//                 break;
+//             }
+//         }
+//     }
+//
+//     if !ready {
+//         let _ = child.kill().await;
+//         let _ = child.wait().await;
+//         return Err("Service failed to start within 30 seconds".into());
+//     }
+//
+//     println!("::group::ConformU FilterWheel Compliance Test Results");
+//     println!("Running ASCOM Alpaca filter wheel compliance tests...");
+//
+//     // Run ConformU tests for filter wheel device 0
+//     let result = run_conformu_tests::<dyn ascom_alpaca::api::FilterWheel>(
+//         &format!("http://localhost:{}", port),
+//         0,
+//     )
+//     .await;
+//
+//     match &result {
+//         Ok(_) => {
+//             println!("✅ ConformU filter wheel compliance tests PASSED");
+//             println!("All ASCOM Alpaca filter wheel compliance requirements met");
+//         }
+//         Err(e) => {
+//             println!("❌ ConformU filter wheel compliance tests FAILED");
+//             println!("Error: {}", e);
+//         }
+//     }
+//
+//     println!("::endgroup::");
+//
+//     // Cleanup
+//     let _ = child.kill().await;
+//     let _ = child.wait().await;
+//
+//     result?;
+//     Ok(())
+// }
