@@ -20,6 +20,7 @@ ASCOM Alpaca driver for QHYCCD cameras and filter wheels.
 categories = ["aerospace"]
 homepage = "https://github.com/ivonnyssen/qhyccd-alpaca/wiki"
 edition = "2024"
+rust-version = "1.86.0"
 exclude = ["/.github", "/.vscode"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

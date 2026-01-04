@@ -17,10 +17,10 @@ ASCOM Alpaca driver for QHYCCD cameras and filter wheels written in Rust.
 
 | Camera Model | ASCOM Validation Status |
 | ------------ | ------ |
-| QHY5III290C  | Passed |
-| QHY5III178M  | Failed - exposure fails with error code 0x2001 |
-| QHY178M      | Passed |
-| QHY600M      | Passed |
+| QHY5III290C | Passed |
+| QHY5III178M | Failed - exposure fails with error code 0x2001 |
+| QHY178M | Passed |
+| QHY600M | Passed |
 
 ### Tested Filter Wheels
 

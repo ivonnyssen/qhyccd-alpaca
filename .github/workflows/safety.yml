@@ -20,16 +20,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-        with:
-          submodules: true
       - name: Install libusb
-        run: sudo apt-get install libusb-1.0-0-dev
-      - name: Install qhyccd sdk
-        run: |
-          wget https://www.qhyccd.com/file/repository/publish/SDK/24.12.26/sdk_linux64_24.12.27.tgz
-          tar xzvf sdk_linux64_24.12.27.tgz
-          cd sdk_linux64_24.12.27/
-          sudo sh install.sh
+        uses: awalsh128/cache-apt-pkgs-action@latest
+        with:
+          packages: libusb-1.0-0-dev
+          version: 1.0
+      - name: Install QHYCCD SDK
+        uses: ivonnyssen/qhyccd-sdk-install@v1
+        with:
+          version: "25.09.29"
       - name: Install nightly
         uses: dtolnay/rust-toolchain@nightly
       - run: |
@@ -64,8 +63,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-        with:
-          submodules: true
       - run: |
           echo "NIGHTLY=nightly-$(curl -s https://rust-lang.github.io/rustup-components-history/x86_64-unknown-linux-gnu/miri)" >> "$GITHUB_ENV"
       - name: Install ${{ env.NIGHTLY }}
@@ -73,7 +70,16 @@ jobs:
         with:
           toolchain: ${{ env.NIGHTLY }}
           components: miri
+      - name: Install libusb
+        uses: awalsh128/cache-apt-pkgs-action@latest
+        with:
+          packages: libusb-1.0-0-dev
+          version: 1.0
+      - name: Install QHYCCD SDK
+        uses: ivonnyssen/qhyccd-sdk-install@v1
+        with:
+          version: "25.09.29"
       - name: cargo miri test
-        run: cargo miri test -- --skip no_miri
+        run: cargo miri test --all-features -- --skip no_miri
         env:
           MIRIFLAGS: ""

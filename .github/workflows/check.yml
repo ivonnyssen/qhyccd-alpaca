@@ -26,8 +26,6 @@ jobs:
     name: stable / fmt
     steps:
       - uses: actions/checkout@v6
-        with:
-          submodules: true
       - name: Install stable
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -47,15 +45,13 @@ jobs:
         toolchain: [stable, beta]
     steps:
       - uses: actions/checkout@v6
-        with:
-          submodules: true
       - name: Install ${{ matrix.toolchain }}
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ matrix.toolchain }}
           components: clippy
       - name: cargo clippy
-        uses: giraffate/clippy-action@v1
+        uses: giraffate/clippy-action@v1.0.1
         with:
           reporter: 'github-pr-check'
           github_token: ${{ secrets.GITHUB_TOKEN }}
@@ -66,8 +62,6 @@ jobs:
     name: ubuntu / stable / features
     steps:
       - uses: actions/checkout@v6
-        with:
-          submodules: true
       - name: Install stable
         uses: dtolnay/rust-toolchain@stable
       - name: cargo install cargo-hack
@@ -76,22 +70,12 @@ jobs:
       # --feature-powerset runs for every combination of features
       - name: cargo hack
         run: cargo hack --feature-powerset check
-  msrv:
-    # check that we can build using the minimal rust version that is specified by this crate
+  msrv-verify:
     runs-on: ubuntu-latest
-    # we use a matrix here just because env can't be used in job names
-    # https://docs.github.com/en/actions/learn-github-actions/contexts#context-availability
-    strategy:
-      matrix:
-        msrv: ["1.86.0"] # home
-    name: ubuntu / ${{ matrix.msrv }}
+    name: ubuntu / msrv - verify
     steps:
       - uses: actions/checkout@v6
+      - uses: taiki-e/install-action@v2
         with:
-          submodules: true
-      - name: Install ${{ matrix.msrv }}
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: ${{ matrix.msrv }}
-      - name: cargo +${{ matrix.msrv }} check
-        run: cargo check
+          tool: cargo-msrv
+      - run: cargo msrv verify
