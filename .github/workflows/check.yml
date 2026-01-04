@@ -26,8 +26,6 @@ jobs:
     name: stable / fmt
     steps:
       - uses: actions/checkout@v6
-        with:
-          submodules: true
       - name: Install stable
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -47,8 +45,6 @@ jobs:
         toolchain: [stable, beta]
     steps:
       - uses: actions/checkout@v6
-        with:
-          submodules: true
       - name: Install ${{ matrix.toolchain }}
         uses: dtolnay/rust-toolchain@master
         with:
@@ -56,7 +52,6 @@ jobs:
           components: clippy
       - name: cargo clippy
         uses: giraffate/clippy-action@v1
-        with:
           reporter: 'github-pr-check'
           github_token: ${{ secrets.GITHUB_TOKEN }}
   hack:
@@ -66,8 +61,6 @@ jobs:
     name: ubuntu / stable / features
     steps:
       - uses: actions/checkout@v6
-        with:
-          submodules: true
       - name: Install stable
         uses: dtolnay/rust-toolchain@stable
       - name: cargo install cargo-hack
@@ -87,8 +80,6 @@ jobs:
     name: ubuntu / ${{ matrix.msrv }}
     steps:
       - uses: actions/checkout@v6
-        with:
-          submodules: true
       - name: Install ${{ matrix.msrv }}
         uses: dtolnay/rust-toolchain@master
         with:

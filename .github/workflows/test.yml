@@ -27,8 +27,6 @@ jobs:
         toolchain: [stable, beta]
     steps:
       - uses: actions/checkout@v6
-        with:
-          submodules: true
       - name: Install libusb
         run: sudo apt-get install libusb-1.0-0-dev
       - name: Install qhyccd sdk
@@ -78,8 +76,6 @@ jobs:
     name: ubuntu / stable / minimal-versions
     steps:
       - uses: actions/checkout@v6
-        with:
-          submodules: true
       - name: Install libusb
         run: sudo apt-get install libusb-1.0-0-dev
       - name: Install qhyccd sdk
@@ -124,8 +120,6 @@ jobs:
     name: ubuntu / stable / coverage
     steps:
       - uses: actions/checkout@v6
-        with:
-          submodules: true
       - name: Install libusb
         run: sudo apt-get install libusb-1.0-0-dev
       - name: Install qhyccd sdk
