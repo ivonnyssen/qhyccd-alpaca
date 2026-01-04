@@ -1,0 +1,39 @@
+name: ConformU
+
+permissions:
+  contents: read
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  conformu:
+    name: ConformU Tests
+    runs-on: ${{ matrix.os }}
+    concurrency:
+      group: ${{ github.workflow }}-${{ matrix.os }}-${{ github.head_ref || github.run_id }}
+      cancel-in-progress: true
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install libusb
+        run: sudo apt-get update && sudo apt-get install -y libusb-1.0-0-dev
+      - name: Install QHYCCD SDK
+        uses: ivonnyssen/qhyccd-sdk-install@v1
+        with:
+          version: "25.09.29"
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Install ConformU
+        id: conformu
+        uses: ivonnyssen/conformu-install@v1
+      - name: Build project
+        run: cargo build --all --release
+      - name: Run ConformU tests
+        timeout-minutes: 10
+        run: cargo test --test conformu_integration -- --ignored
