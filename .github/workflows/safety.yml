@@ -28,7 +28,7 @@ jobs:
       - name: Install QHYCCD SDK
         uses: ivonnyssen/qhyccd-sdk-install@v1
         with:
-          version: "25.09.26"
+          version: "25.09.29"
       - name: Install nightly
         uses: dtolnay/rust-toolchain@nightly
       - run: |

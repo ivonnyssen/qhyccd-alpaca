@@ -35,7 +35,7 @@ jobs:
       - name: Install QHYCCD SDK
         uses: ivonnyssen/qhyccd-sdk-install@v1
         with:
-          version: "25.09.26"
+          version: "25.09.29"
       - name: Install ${{ matrix.toolchain }}
         uses: dtolnay/rust-toolchain@master
         with:
@@ -85,7 +85,7 @@ jobs:
       - name: Install QHYCCD SDK
         uses: ivonnyssen/qhyccd-sdk-install@v1
         with:
-          version: "25.09.26"
+          version: "25.09.29"
       - name: Install stable
         uses: dtolnay/rust-toolchain@stable
       - name: Install nightly for -Zminimal-versions
@@ -130,7 +130,7 @@ jobs:
       - name: Install QHYCCD SDK
         uses: ivonnyssen/qhyccd-sdk-install@v1
         with:
-          version: "25.09.26"
+          version: "25.09.29"
       - name: Install stable
         uses: dtolnay/rust-toolchain@stable
         with:
