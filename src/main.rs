@@ -974,7 +974,7 @@ impl Camera for QhyccdCamera {
 
     async fn abort_exposure(&self) -> ASCOMResult {
         ensure_connected!(self);
-        
+
         let mut state_lock = self.state.write().await;
         match &mut *state_lock {
             State::Exposing { stop_tx, .. } => {
