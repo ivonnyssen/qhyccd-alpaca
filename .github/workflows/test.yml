@@ -28,13 +28,14 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: Install libusb
-        run: sudo apt-get install libusb-1.0-0-dev
-      - name: Install qhyccd sdk
-        run: |
-          wget https://www.qhyccd.com/file/repository/publish/SDK/24.12.26/sdk_linux64_24.12.27.tgz
-          tar xzvf sdk_linux64_24.12.27.tgz
-          cd sdk_linux64_24.12.27/
-          sudo sh install.sh
+        uses: awalsh128/cache-apt-pkgs-action@latest
+        with:
+          packages: libusb-1.0-0-dev
+          version: 1.0
+      - name: Install QHYCCD SDK
+        uses: ivonnyssen/qhyccd-sdk-install@v1
+        with:
+          version: "24.12.26"
       - name: Install ${{ matrix.toolchain }}
         uses: dtolnay/rust-toolchain@master
         with:
@@ -77,13 +78,14 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: Install libusb
-        run: sudo apt-get install libusb-1.0-0-dev
-      - name: Install qhyccd sdk
-        run: |
-          wget https://www.qhyccd.com/file/repository/publish/SDK/24.12.26/sdk_linux64_24.12.27.tgz
-          tar xzvf sdk_linux64_24.12.27.tgz
-          cd sdk_linux64_24.12.27/
-          sudo sh install.sh
+        uses: awalsh128/cache-apt-pkgs-action@latest
+        with:
+          packages: libusb-1.0-0-dev
+          version: 1.0
+      - name: Install QHYCCD SDK
+        uses: ivonnyssen/qhyccd-sdk-install@v1
+        with:
+          version: "24.12.26"
       - name: Install stable
         uses: dtolnay/rust-toolchain@stable
       - name: Install nightly for -Zminimal-versions
@@ -121,13 +123,14 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: Install libusb
-        run: sudo apt-get install libusb-1.0-0-dev
-      - name: Install qhyccd sdk
-        run: |
-          wget https://www.qhyccd.com/file/repository/publish/SDK/24.12.26/sdk_linux64_24.12.27.tgz
-          tar xzvf sdk_linux64_24.12.27.tgz
-          cd sdk_linux64_24.12.27/
-          sudo sh install.sh
+        uses: awalsh128/cache-apt-pkgs-action@latest
+        with:
+          packages: libusb-1.0-0-dev
+          version: 1.0
+      - name: Install QHYCCD SDK
+        uses: ivonnyssen/qhyccd-sdk-install@v1
+        with:
+          version: "24.12.26"
       - name: Install stable
         uses: dtolnay/rust-toolchain@stable
         with:
