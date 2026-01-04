@@ -1,6 +1,7 @@
 #![warn(clippy::integer_division)]
 use core::f64;
 use qhyccd_rs::{CCDChipInfo, ImageData};
+use std::sync::Arc;
 use std::time::SystemTime;
 use tokio::sync::RwLock;
 
@@ -66,8 +67,8 @@ struct QhyccdCamera {
     exposure_min_max_step: RwLock<Option<(f64, f64, f64)>>,
     last_exposure_start_time: RwLock<Option<SystemTime>>,
     last_exposure_duration_us: RwLock<Option<u32>>,
-    last_image: RwLock<Option<ImageArray>>,
-    state: RwLock<State>,
+    last_image: Arc<RwLock<Option<ImageArray>>>,
+    state: Arc<RwLock<State>>,
     gain_min_max: RwLock<Option<(f64, f64)>>,
     offset_min_max: RwLock<Option<(f64, f64)>>,
 }
@@ -102,41 +103,24 @@ impl QhyccdCamera {
         valid_binning_modes
     }
 
-    fn validate_image_data_shape(
-        &self,
-        width: usize,
-        height: usize,
-        data_length: usize,
-        bytes_per_pixel: usize,
-    ) -> Result<()> {
-        match width * height <= data_length * bytes_per_pixel {
-            true => Ok(()),
-            false => {
-                error!(
-                    "image data length ({}) does not match width ({}) * height ({}) * bytes_per_pixel ({})",
-                    data_length, width, height, bytes_per_pixel
-                );
-                Err(eyre!(
-                    "image data length ({}) does not match width ({}) * height ({}) * bytes_per_pixel ({})",
-                    data_length,
-                    width,
-                    height,
-                    bytes_per_pixel
-                ))
-            }
-        }
-    }
-
-    fn transform_image(&self, image: qhyccd_rs::ImageData) -> Result<ImageArray> {
+    fn transform_image_static(image: qhyccd_rs::ImageData) -> Result<ImageArray> {
         match image.channels {
             1_u32 => match image.bits_per_pixel {
                 8_u32 => {
-                    self.validate_image_data_shape(
-                        image.width as usize,
-                        image.height as usize,
-                        image.data.len(),
-                        1_usize,
-                    )?;
+                    if image.width as usize * image.height as usize > image.data.len() {
+                        error!(
+                            "image data length ({}) does not match width ({}) * height ({})",
+                            image.data.len(),
+                            image.width,
+                            image.height
+                        );
+                        return Err(eyre!(
+                            "image data length ({}) does not match width ({}) * height ({})",
+                            image.data.len(),
+                            image.width,
+                            image.height
+                        ));
+                    }
                     let data: Vec<u8> =
                         image.data[0_usize..image.width as usize * image.height as usize].to_vec();
                     let array_base = Array3::from_shape_vec(
@@ -152,12 +136,20 @@ impl QhyccdCamera {
                     Ok(swapped.into())
                 }
                 16_u32 => {
-                    self.validate_image_data_shape(
-                        image.width as usize,
-                        image.height as usize,
-                        image.data.len(),
-                        2_usize,
-                    )?;
+                    if image.width as usize * image.height as usize * 2 > image.data.len() {
+                        error!(
+                            "image data length ({}) does not match width ({}) * height ({}) * 2",
+                            image.data.len(),
+                            image.width,
+                            image.height
+                        );
+                        return Err(eyre!(
+                            "image data length ({}) does not match width ({}) * height ({}) * 2",
+                            image.data.len(),
+                            image.width,
+                            image.height
+                        ));
+                    }
                     let data = image.data
                         [0_usize..image.width as usize * image.height as usize * 2_usize]
                         .to_vec()
@@ -880,6 +872,7 @@ impl Camera for QhyccdCamera {
                 return Err(ASCOMError::INVALID_OPERATION);
             }
         };
+        drop(lock);
 
         *self.last_exposure_start_time.write().await = Some(SystemTime::now());
         *self.last_exposure_duration_us.write().await = Some(exposure_us);
@@ -892,50 +885,63 @@ impl Camera for QhyccdCamera {
             })?;
 
         let device = self.device.clone();
-        let image = task::spawn_blocking(move || {
-            device.start_single_frame_exposure().map_err(|e| {
-                error!(?e, "failed to stop exposure: {:?}", e);
-                ASCOMError::INVALID_OPERATION
-            })?;
-            let buffer_size = device.get_image_size().map_err(|e| {
-                error!(?e, "get_image_size failed");
-                ASCOMError::INVALID_OPERATION
-            })?;
-            debug!(?buffer_size);
+        let device_for_abort = device.clone();
+        let state = self.state.clone();
+        let last_image = self.last_image.clone();
 
-            let image = device.get_single_frame(buffer_size).map_err(|e| {
-                error!(?e, "get_single_frame failed");
-                ASCOMError::INVALID_OPERATION
-            })?;
-            Ok::<ImageData, ascom_alpaca::ASCOMError>(image)
-        });
-        let stop = stop_rx;
-        tokio::select! {
-            image = image => {
-                match image {
-                    Ok(image_result) => {
-                        let Ok(image) = image_result else {
-                            error!("failed to get image");
-                            return Err(ASCOMError::INVALID_OPERATION);
-                        };
-                        let  mut lock = self.last_image.write().await;
-                        *lock = Some(self.transform_image(image).map_err(|e| {
-                                error!(?e, "failed to transform image");
-                                ASCOMError::INVALID_OPERATION
-                        })?);
-                        let _ = done_tx.send(true);
+        tokio::spawn(async move {
+            let image_task = task::spawn_blocking(move || {
+                device.start_single_frame_exposure().map_err(|e| {
+                    error!(?e, "failed to start exposure: {:?}", e);
+                    ASCOMError::INVALID_OPERATION
+                })?;
+                let buffer_size = device.get_image_size().map_err(|e| {
+                    error!(?e, "get_image_size failed");
+                    ASCOMError::INVALID_OPERATION
+                })?;
+                debug!(?buffer_size);
+
+                let image = device.get_single_frame(buffer_size).map_err(|e| {
+                    error!(?e, "get_single_frame failed");
+                    ASCOMError::INVALID_OPERATION
+                })?;
+                Ok::<ImageData, ascom_alpaca::ASCOMError>(image)
+            });
+
+            tokio::select! {
+                image_result = image_task => {
+                    match image_result {
+                        Ok(Ok(image)) => {
+                            match QhyccdCamera::transform_image_static(image) {
+                                Ok(transformed) => {
+                                    *last_image.write().await = Some(transformed);
+                                    let _ = done_tx.send(true);
+                                    debug!("exposure completed successfully");
+                                }
+                                Err(e) => {
+                                    error!(?e, "failed to transform image");
+                                }
+                            }
+                        }
+                        Ok(Err(e)) => {
+                            error!(?e, "failed to get image");
+                        }
+                        Err(e) => {
+                            error!(?e, "task failed");
+                        }
                     }
-                    Err(e) => {
-                        error!(?e, "failed to get image");
-                        return Err(ASCOMError::INVALID_OPERATION);
+                },
+                _ = stop_rx => {
+                    if let Err(e) = device_for_abort.abort_exposure_and_readout() {
+                        error!(?e, "failed to abort exposure");
                     }
+                    debug!("exposure aborted");
                 }
-            },
-            _ = stop => self.device.abort_exposure_and_readout().map_err(|e|{
-                        error!(?e, "failed to stop exposure: {:?}", e);
-                        ASCOMError::INVALID_OPERATION })?,
-        }
-        *lock = State::Idle;
+            }
+
+            *state.write().await = State::Idle;
+        });
+
         Ok(())
     }
 
@@ -1536,8 +1542,8 @@ async fn main() -> eyre::Result<std::convert::Infallible> {
             exposure_min_max_step: RwLock::new(None),
             last_exposure_start_time: RwLock::new(None),
             last_exposure_duration_us: RwLock::new(None),
-            last_image: RwLock::new(None),
-            state: RwLock::new(State::Idle),
+            last_image: Arc::new(RwLock::new(None)),
+            state: Arc::new(RwLock::new(State::Idle)),
             gain_min_max: RwLock::new(None),
             offset_min_max: RwLock::new(None),
         };
