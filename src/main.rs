@@ -974,10 +974,23 @@ impl Camera for QhyccdCamera {
 
     async fn abort_exposure(&self) -> ASCOMResult {
         ensure_connected!(self);
-        self.device.abort_exposure_and_readout().map_err(|e| {
-            error!(?e, "stop_exposure failed");
-            ASCOMError::INVALID_OPERATION
-        })
+        
+        let mut state_lock = self.state.write().await;
+        match &mut *state_lock {
+            State::Exposing { stop_tx, .. } => {
+                if let Some(tx) = stop_tx.take() {
+                    let _ = tx.send(StopExposure { _want_image: false });
+                    Ok(())
+                } else {
+                    // Channel already used
+                    Err(ASCOMError::INVALID_OPERATION)
+                }
+            }
+            State::Idle => {
+                // Nothing to abort
+                Ok(())
+            }
+        }
     }
 
     async fn pixel_size_x(&self) -> ASCOMResult<f64> {
