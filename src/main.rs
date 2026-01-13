@@ -2,7 +2,7 @@
 use core::f64;
 use qhyccd_rs::CCDChipInfo;
 use std::sync::Arc;
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 use tokio::sync::RwLock;
 
 use ascom_alpaca::api::camera::{CameraState, ImageArray, SensorType};
@@ -58,8 +58,8 @@ struct QhyccdCamera {
     name: String,
     description: String,
     device: QhyCamera,
-    binning: RwLock<u32>,
-    valid_bins: RwLock<Option<Vec<u32>>>,
+    binning: RwLock<u8>,
+    valid_bins: RwLock<Option<Vec<u8>>>,
     target_temperature: RwLock<Option<f64>>,
     ccd_info: RwLock<Option<CCDChipInfo>>,
     intended_roi: RwLock<Option<qhyccd_rs::CCDChipArea>>,
@@ -74,32 +74,32 @@ struct QhyccdCamera {
 }
 
 impl QhyccdCamera {
-    fn get_valid_binning_modes(&self) -> Vec<u32> {
+    fn get_valid_binning_modes(&self) -> Vec<u8> {
         let mut valid_binning_modes = Vec::with_capacity(6);
         self.device
             .is_control_available(qhyccd_rs::Control::CamBin1x1mode)
             .is_some()
-            .then(|| valid_binning_modes.push(1_u32));
+            .then(|| valid_binning_modes.push(1_u8));
         self.device
             .is_control_available(qhyccd_rs::Control::CamBin2x2mode)
             .is_some()
-            .then(|| valid_binning_modes.push(2_u32));
+            .then(|| valid_binning_modes.push(2_u8));
         self.device
             .is_control_available(qhyccd_rs::Control::CamBin3x3mode)
             .is_some()
-            .then(|| valid_binning_modes.push(3_u32));
+            .then(|| valid_binning_modes.push(3_u8));
         self.device
             .is_control_available(qhyccd_rs::Control::CamBin4x4mode)
             .is_some()
-            .then(|| valid_binning_modes.push(4_u32));
+            .then(|| valid_binning_modes.push(4_u8));
         self.device
             .is_control_available(qhyccd_rs::Control::CamBin6x6mode)
             .is_some()
-            .then(|| valid_binning_modes.push(6_u32));
+            .then(|| valid_binning_modes.push(6_u8));
         self.device
             .is_control_available(qhyccd_rs::Control::CamBin8x8mode)
             .is_some()
-            .then(|| valid_binning_modes.push(8_u32));
+            .then(|| valid_binning_modes.push(8_u8));
         valid_binning_modes
     }
 
@@ -342,7 +342,7 @@ macro_rules! ensure_connected {
 
 #[async_trait]
 impl Camera for QhyccdCamera {
-    async fn bayer_offset_x(&self) -> ASCOMResult<i32> {
+    async fn bayer_offset_x(&self) -> ASCOMResult<u8> {
         ensure_connected!(self);
         self.device
             .is_control_available(qhyccd_rs::Control::CamIsColor)
@@ -370,7 +370,7 @@ impl Camera for QhyccdCamera {
         }
     }
 
-    async fn bayer_offset_y(&self) -> ASCOMResult<i32> {
+    async fn bayer_offset_y(&self) -> ASCOMResult<u8> {
         ensure_connected!(self);
         self.device
             .is_control_available(qhyccd_rs::Control::CamIsColor)
@@ -411,12 +411,12 @@ impl Camera for QhyccdCamera {
         }
     }
 
-    async fn bin_x(&self) -> ASCOMResult<i32> {
+    async fn bin_x(&self) -> ASCOMResult<u8> {
         ensure_connected!(self);
-        Ok(*self.binning.read().await as i32)
+        Ok(*self.binning.read().await)
     }
 
-    async fn set_bin_x(&self, bin_x: i32) -> ASCOMResult {
+    async fn set_bin_x(&self, bin_x: u8) -> ASCOMResult {
         ensure_connected!(self);
         let valid_bins = self.valid_bins.read().await.clone().ok_or_else(|| {
             error!("valid_bins not set");
@@ -424,13 +424,13 @@ impl Camera for QhyccdCamera {
         })?;
         valid_bins
             .iter()
-            .find(|bin| **bin as i32 == bin_x)
+            .find(|bin| **bin == bin_x)
             .ok_or_else(|| {
                 error!("trying to set invalid bin value: {}", bin_x);
                 ASCOMError::invalid_value("bin value must be one of the valid bins")
             })?;
         let mut lock = self.binning.write().await;
-        if *lock as i32 == bin_x {
+        if (*lock as u8) == bin_x {
             return Ok(());
         };
         self.device
@@ -441,7 +441,7 @@ impl Camera for QhyccdCamera {
             })?;
         //adjust start and num values
         let old = *lock;
-        *lock = bin_x as u32;
+        *lock = bin_x;
         let mut roi_lock = self.intended_roi.write().await;
         *roi_lock = roi_lock.map(|roi| CCDChipArea {
             start_x: (roi.start_x as f32 * old as f32 / bin_x as f32) as u32,
@@ -452,27 +452,27 @@ impl Camera for QhyccdCamera {
         Ok(())
     }
 
-    async fn bin_y(&self) -> ASCOMResult<i32> {
+    async fn bin_y(&self) -> ASCOMResult<u8> {
         self.bin_x().await
     }
 
-    async fn set_bin_y(&self, bin_y: i32) -> ASCOMResult {
+    async fn set_bin_y(&self, bin_y: u8) -> ASCOMResult {
         self.set_bin_x(bin_y).await
     }
 
-    async fn max_bin_x(&self) -> ASCOMResult<i32> {
+    async fn max_bin_x(&self) -> ASCOMResult<u8> {
         ensure_connected!(self);
         self.get_valid_binning_modes()
             .iter()
-            .map(|m| *m as i32)
             .max()
+            .copied()
             .ok_or_else(|| {
                 error!("valid_binning_modes is empty");
                 ASCOMError::INVALID_OPERATION
             })
     }
 
-    async fn max_bin_y(&self) -> ASCOMResult<i32> {
+    async fn max_bin_y(&self) -> ASCOMResult<u8> {
         self.max_bin_x().await
     }
 
@@ -488,11 +488,10 @@ impl Camera for QhyccdCamera {
         Err(ASCOMError::NOT_IMPLEMENTED)
     }
 
-    async fn exposure_max(&self) -> ASCOMResult<f64> {
+    async fn exposure_max(&self) -> ASCOMResult<Duration> {
         ensure_connected!(self);
         match *self.exposure_min_max_step.read().await {
-            Some((_min, max, _step)) => Ok(max / 1_000_000_f64), //values from the camera are in
-            //us
+            Some((_min, max, _step)) => Ok(Duration::from_micros(max as u64)), //values from the camera are in us
             None => {
                 error!("should have a max exposure value, but don't");
                 Err(ASCOMError::INVALID_VALUE)
@@ -500,11 +499,10 @@ impl Camera for QhyccdCamera {
         }
     }
 
-    async fn exposure_min(&self) -> ASCOMResult<f64> {
+    async fn exposure_min(&self) -> ASCOMResult<Duration> {
         ensure_connected!(self);
         match *self.exposure_min_max_step.read().await {
-            Some((min, _max, _step)) => Ok(min / 1_000_000_f64), //values from the camera are in
-            //us
+            Some((min, _max, _step)) => Ok(Duration::from_micros(min as u64)), //values from the camera are in us
             None => {
                 error!("should have a min exposure value, but don't");
                 Err(ASCOMError::INVALID_VALUE)
@@ -512,11 +510,10 @@ impl Camera for QhyccdCamera {
         }
     }
 
-    async fn exposure_resolution(&self) -> ASCOMResult<f64> {
+    async fn exposure_resolution(&self) -> ASCOMResult<Duration> {
         ensure_connected!(self);
         match *self.exposure_min_max_step.read().await {
-            Some((_min, _max, step)) => Ok(step / 1_000_000_f64), //values from the camera are in
-            //us
+            Some((_min, _max, step)) => Ok(Duration::from_micros(step as u64)), //values from the camera are in us
             None => {
                 error!("should have a step exposure value, but don't");
                 Err(ASCOMError::INVALID_VALUE)
@@ -571,10 +568,10 @@ impl Camera for QhyccdCamera {
         }
     }
 
-    async fn last_exposure_duration(&self) -> ASCOMResult<f64> {
+    async fn last_exposure_duration(&self) -> ASCOMResult<Duration> {
         ensure_connected!(self);
         match *self.last_exposure_duration_us.read().await {
-            Some(duration) => Ok(duration as f64 / 1_000_000_f64),
+            Some(duration) => Ok(Duration::from_micros(duration.into())),
             None => Err(ASCOMError::VALUE_NOT_SET),
         }
     }
@@ -595,39 +592,36 @@ impl Camera for QhyccdCamera {
             )
     }
 
-    async fn camera_xsize(&self) -> ASCOMResult<i32> {
+    async fn camera_x_size(&self) -> ASCOMResult<u32> {
         ensure_connected!(self);
         self.ccd_info.read().await.map_or_else(
             || Err(ASCOMError::VALUE_NOT_SET),
-            |ccd_info| Ok(ccd_info.image_width as i32),
+            |ccd_info| Ok(ccd_info.image_width),
         )
     }
 
-    async fn camera_ysize(&self) -> ASCOMResult<i32> {
+    async fn camera_y_size(&self) -> ASCOMResult<u32> {
         ensure_connected!(self);
         self.ccd_info.read().await.map_or_else(
             || Err(ASCOMError::VALUE_NOT_SET),
-            |ccd_info| Ok(ccd_info.image_height as i32),
+            |ccd_info| Ok(ccd_info.image_height),
         )
     }
 
-    async fn start_x(&self) -> ASCOMResult<i32> {
+    async fn start_x(&self) -> ASCOMResult<u32> {
         ensure_connected!(self);
-        self.intended_roi.read().await.map_or_else(
-            || Err(ASCOMError::VALUE_NOT_SET),
-            |roi| Ok(roi.start_x as i32),
-        )
+        self.intended_roi
+            .read()
+            .await
+            .map_or_else(|| Err(ASCOMError::VALUE_NOT_SET), |roi| Ok(roi.start_x))
     }
 
-    async fn set_start_x(&self, start_x: i32) -> ASCOMResult {
-        if start_x < 0 {
-            return Err(ASCOMError::INVALID_VALUE);
-        }
+    async fn set_start_x(&self, start_x: u32) -> ASCOMResult {
         ensure_connected!(self);
         let mut lock = self.intended_roi.write().await;
         *lock = match *lock {
             Some(intended_roi) => Some(CCDChipArea {
-                start_x: start_x as u32,
+                start_x,
                 ..intended_roi
             }),
             None => {
@@ -638,23 +632,20 @@ impl Camera for QhyccdCamera {
         Ok(())
     }
 
-    async fn start_y(&self) -> ASCOMResult<i32> {
+    async fn start_y(&self) -> ASCOMResult<u32> {
         ensure_connected!(self);
-        self.intended_roi.read().await.map_or_else(
-            || Err(ASCOMError::VALUE_NOT_SET),
-            |roi| Ok(roi.start_y as i32),
-        )
+        self.intended_roi
+            .read()
+            .await
+            .map_or_else(|| Err(ASCOMError::VALUE_NOT_SET), |roi| Ok(roi.start_y))
     }
 
-    async fn set_start_y(&self, start_y: i32) -> ASCOMResult {
-        if start_y < 0 {
-            return Err(ASCOMError::INVALID_VALUE);
-        }
+    async fn set_start_y(&self, start_y: u32) -> ASCOMResult {
         ensure_connected!(self);
         let mut lock = self.intended_roi.write().await;
         *lock = match *lock {
             Some(intended_roi) => Some(CCDChipArea {
-                start_y: start_y as u32,
+                start_y,
                 ..intended_roi
             }),
             None => {
@@ -665,23 +656,20 @@ impl Camera for QhyccdCamera {
         Ok(())
     }
 
-    async fn num_x(&self) -> ASCOMResult<i32> {
+    async fn num_x(&self) -> ASCOMResult<u32> {
         ensure_connected!(self);
-        self.intended_roi.read().await.map_or_else(
-            || Err(ASCOMError::VALUE_NOT_SET),
-            |roi| Ok(roi.width as i32),
-        )
+        self.intended_roi
+            .read()
+            .await
+            .map_or_else(|| Err(ASCOMError::VALUE_NOT_SET), |roi| Ok(roi.width))
     }
 
-    async fn set_num_x(&self, num_x: i32) -> ASCOMResult {
-        if num_x < 0 {
-            return Err(ASCOMError::INVALID_VALUE);
-        }
+    async fn set_num_x(&self, num_x: u32) -> ASCOMResult {
         ensure_connected!(self);
         let mut lock = self.intended_roi.write().await;
         *lock = match *lock {
             Some(intended_roi) => Some(CCDChipArea {
-                width: num_x as u32,
+                width: num_x,
                 ..intended_roi
             }),
             None => {
@@ -692,23 +680,20 @@ impl Camera for QhyccdCamera {
         Ok(())
     }
 
-    async fn num_y(&self) -> ASCOMResult<i32> {
+    async fn num_y(&self) -> ASCOMResult<u32> {
         ensure_connected!(self);
-        self.intended_roi.read().await.map_or_else(
-            || Err(ASCOMError::VALUE_NOT_SET),
-            |roi| Ok(roi.height as i32),
-        )
+        self.intended_roi
+            .read()
+            .await
+            .map_or_else(|| Err(ASCOMError::VALUE_NOT_SET), |roi| Ok(roi.height))
     }
 
-    async fn set_num_y(&self, num_y: i32) -> ASCOMResult {
-        if num_y < 0 {
-            return Err(ASCOMError::INVALID_VALUE);
-        }
+    async fn set_num_y(&self, num_y: u32) -> ASCOMResult {
         ensure_connected!(self);
         let mut lock = self.intended_roi.write().await;
         *lock = match *lock {
             Some(intended_roi) => Some(CCDChipArea {
-                height: num_y as u32,
+                height: num_y,
                 ..intended_roi
             }),
             None => {
@@ -719,10 +704,10 @@ impl Camera for QhyccdCamera {
         Ok(())
     }
 
-    async fn percent_completed(&self) -> ASCOMResult<i32> {
+    async fn percent_completed(&self) -> ASCOMResult<u8> {
         ensure_connected!(self);
         match *self.state.read().await {
-            State::Idle => Ok(100_i32),
+            State::Idle => Ok(100_u8),
             State::Exposing {
                 expected_duration_us,
                 ..
@@ -732,24 +717,24 @@ impl Camera for QhyccdCamera {
                     return Err(ASCOMError::INVALID_OPERATION);
                 };
 
-                let res = (100_f64 * remaining as f64 / expected_duration_us as f64) as i32;
-                if res > 100_i32 { Ok(100_i32) } else { Ok(res) }
+                let res = (100_f64 * remaining as f64 / expected_duration_us as f64) as u8;
+                if res > 100_u8 { Ok(100_u8) } else { Ok(res) }
             }
         }
     }
 
-    async fn readout_mode(&self) -> ASCOMResult<i32> {
+    async fn readout_mode(&self) -> ASCOMResult<usize> {
         ensure_connected!(self);
         self.device.get_readout_mode().map_or_else(
             |e| {
                 error!(?e, "get_readout_mode failed");
                 Err(ASCOMError::INVALID_OPERATION)
             },
-            |readout_mode| Ok(readout_mode as i32),
+            |readout_mode| Ok(readout_mode as usize),
         )
     }
 
-    async fn set_readout_mode(&self, readout_mode: i32) -> ASCOMResult {
+    async fn set_readout_mode(&self, readout_mode: usize) -> ASCOMResult {
         let readout_mode = readout_mode as u32;
         ensure_connected!(self);
         let number = self.device.get_number_of_readout_modes().map_err(|e| {
@@ -823,10 +808,7 @@ impl Camera for QhyccdCamera {
     }
 
     #[instrument(level = "trace")]
-    async fn start_exposure(&self, duration: f64, light: bool) -> ASCOMResult {
-        if duration < 0.0 {
-            return Err(ASCOMError::invalid_value("duration must be >= 0"));
-        }
+    async fn start_exposure(&self, duration: Duration, light: bool) -> ASCOMResult {
         if !light {
             return Err(ASCOMError::invalid_operation("dark frames not supported"));
         }
@@ -838,12 +820,12 @@ impl Camera for QhyccdCamera {
             return Err(ASCOMError::invalid_value("StartY > NumY"));
         }
         if self.num_x().await?
-            > (self.camera_xsize().await? as f32 / self.bin_x().await? as f32) as i32
+            > (self.camera_x_size().await? as f32 / self.bin_x().await? as f32) as u32
         {
             return Err(ASCOMError::invalid_value("NumX > CameraXSize"));
         }
         if self.num_y().await?
-            > (self.camera_ysize().await? as f32 / self.bin_y().await? as f32) as i32
+            > (self.camera_y_size().await? as f32 / self.bin_y().await? as f32) as u32
         {
             return Err(ASCOMError::invalid_value("NumY > CameraYSize"));
         }
@@ -855,7 +837,7 @@ impl Camera for QhyccdCamera {
             debug!(?e, "failed to set ROI");
             ASCOMError::invalid_value("failed to set ROI")
         })?;
-        let exposure_us = (duration * 1_000_000_f64) as u32;
+        let exposure_us = (duration.as_secs_f64() * 1_000_000_f64) as u32;
         let (stop_tx, mut stop_rx) = oneshot::channel::<StopExposure>();
         let (done_tx, done_rx) = watch::channel(false);
 
@@ -1511,7 +1493,7 @@ impl FilterWheel for QhyccdFilterWheel {
         Ok(names)
     }
     /// Returns the current filter wheel position
-    async fn position(&self) -> ASCOMResult<i32> {
+    async fn position(&self) -> ASCOMResult<usize> {
         ensure_connected!(self);
         let Some(target_position) = *self.target_position.read().await else {
             error!("target_position not set, but filter wheel connected");
@@ -1522,25 +1504,25 @@ impl FilterWheel for QhyccdFilterWheel {
             ASCOMError::INVALID_OPERATION
         })?;
         match actual == target_position {
-            true => Ok(actual as i32),
+            true => Ok(actual as usize),
             false => {
                 trace!(
                     "position - target_position set to {}, but filter wheel is at {}",
                     target_position, actual
                 );
-                Ok(-1)
+                Ok(usize::MAX) // Use usize::MAX to indicate moving state
             }
         }
     }
 
     /// Sets the filter wheel position
-    async fn set_position(&self, position: i32) -> ASCOMResult {
+    async fn set_position(&self, position: usize) -> ASCOMResult {
         ensure_connected!(self);
         let Some(number_of_filters) = *self.number_of_filters.read().await else {
             error!("number of filters not set, but filter wheel connected");
             return Err(ASCOMError::NOT_CONNECTED);
         };
-        if !(0..number_of_filters as i32).contains(&position) {
+        if !(0..number_of_filters).contains(&(position as u32)) {
             return Err(ASCOMError::INVALID_VALUE);
         }
         let mut lock = self.target_position.write().await;
@@ -1631,7 +1613,7 @@ async fn main() -> eyre::Result<std::convert::Infallible> {
             name: c.id().to_owned(),
             description: "QHYCCD camera".to_owned(),
             device: c.clone(),
-            binning: RwLock::new(1_u32),
+            binning: RwLock::new(1_u8),
             valid_bins: RwLock::new(None),
             target_temperature: RwLock::new(None),
             ccd_info: RwLock::new(None),
