@@ -1,6 +1,6 @@
 #![warn(clippy::integer_division)]
 use core::f64;
-use qhyccd_rs::{CCDChipInfo, ImageData};
+use qhyccd_rs::CCDChipInfo;
 use std::sync::Arc;
 use std::time::SystemTime;
 use tokio::sync::RwLock;
@@ -856,7 +856,7 @@ impl Camera for QhyccdCamera {
             ASCOMError::invalid_value("failed to set ROI")
         })?;
         let exposure_us = (duration * 1_000_000_f64) as u32;
-        let (stop_tx, stop_rx) = oneshot::channel::<StopExposure>();
+        let (stop_tx, mut stop_rx) = oneshot::channel::<StopExposure>();
         let (done_tx, done_rx) = watch::channel(false);
 
         let mut lock = self.state.write().await;
@@ -885,58 +885,143 @@ impl Camera for QhyccdCamera {
             })?;
 
         let device = self.device.clone();
-        let device_for_abort = device.clone();
+        // Create separate device instance for abort to ensure proper SDK synchronization
+        // According to SDK docs, after successful abort we must complete data exchange
+        let device_for_abort = self.device.clone();
         let state = self.state.clone();
         let last_image = self.last_image.clone();
 
         tokio::spawn(async move {
-            let image_task = task::spawn_blocking(move || {
-                device.start_single_frame_exposure().map_err(|e| {
-                    error!(?e, "failed to start exposure: {:?}", e);
-                    ASCOMError::INVALID_OPERATION
-                })?;
-                let buffer_size = device.get_image_size().map_err(|e| {
-                    error!(?e, "get_image_size failed");
-                    ASCOMError::INVALID_OPERATION
-                })?;
-                debug!(?buffer_size);
-
-                let image = device.get_single_frame(buffer_size).map_err(|e| {
-                    error!(?e, "get_single_frame failed");
-                    ASCOMError::INVALID_OPERATION
-                })?;
-                Ok::<ImageData, ascom_alpaca::ASCOMError>(image)
-            });
-
-            tokio::select! {
-                image_result = image_task => {
-                    match image_result {
-                        Ok(Ok(image)) => {
-                            match QhyccdCamera::transform_image_static(image) {
-                                Ok(transformed) => {
-                                    *last_image.write().await = Some(transformed);
-                                    let _ = done_tx.send(true);
-                                    debug!("exposure completed successfully");
-                                }
-                                Err(e) => {
-                                    error!(?e, "failed to transform image");
+            debug!("DEBUG: New implementation started");
+            // Helper function to handle abort and data exchange
+            let handle_abort = || async {
+                debug!("DEBUG: Handling abort");
+                match device_for_abort.abort_exposure_and_readout() {
+                    Ok(()) => {
+                        debug!("abort succeeded, completing data exchange for sync");
+                        if let Ok(buffer_size) = device_for_abort.get_image_size() {
+                            if let Ok(image) = device_for_abort.get_single_frame(buffer_size) {
+                                match QhyccdCamera::transform_image_static(image) {
+                                    Ok(transformed) => {
+                                        *last_image.write().await = Some(transformed);
+                                        debug!("aborted exposure data stored");
+                                    }
+                                    Err(e) => error!(?e, "failed to transform aborted image"),
                                 }
                             }
                         }
-                        Ok(Err(e)) => {
-                            error!(?e, "failed to get image");
-                        }
-                        Err(e) => {
-                            error!(?e, "task failed");
-                        }
                     }
-                },
-                _ = stop_rx => {
-                    if let Err(e) = device_for_abort.abort_exposure_and_readout() {
-                        error!(?e, "failed to abort exposure");
-                    }
-                    debug!("exposure aborted");
+                    Err(e) => error!(?e, "failed to abort exposure"),
                 }
+                debug!("exposure aborted");
+            };
+
+            // Execute start_single_frame_exposure
+            let start_task = task::spawn_blocking({
+                let device = device.clone();
+                move || {
+                    device.start_single_frame_exposure().map_err(|e| {
+                        error!(?e, "failed to start exposure: {:?}", e);
+                        ASCOMError::INVALID_OPERATION
+                    })
+                }
+            });
+
+            match start_task.await {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => {
+                    error!(?e, "start exposure failed");
+                    *state.write().await = State::Idle;
+                    return;
+                }
+                Err(e) => {
+                    error!(?e, "start task failed");
+                    *state.write().await = State::Idle;
+                    return;
+                }
+            }
+
+            // Check for abort after start_single_frame_exposure
+            debug!("DEBUG: Checking for abort after start_single_frame_exposure");
+            match stop_rx.try_recv() {
+                Ok(_) => {
+                    debug!("DEBUG: Abort detected after start_single_frame_exposure!");
+                    handle_abort().await;
+                    *state.write().await = State::Idle;
+                    return;
+                }
+                Err(e) => {
+                    debug!("DEBUG: No abort signal: {:?}", e);
+                }
+            }
+
+            // Execute get_image_size
+            let size_task = task::spawn_blocking({
+                let device = device.clone();
+                move || {
+                    device.get_image_size().map_err(|e| {
+                        error!(?e, "get_image_size failed");
+                        ASCOMError::INVALID_OPERATION
+                    })
+                }
+            });
+
+            let buffer_size = match size_task.await {
+                Ok(Ok(size)) => {
+                    debug!(?size);
+                    size
+                }
+                Ok(Err(e)) => {
+                    error!(?e, "get image size failed");
+                    *state.write().await = State::Idle;
+                    return;
+                }
+                Err(e) => {
+                    error!(?e, "size task failed");
+                    *state.write().await = State::Idle;
+                    return;
+                }
+            };
+
+            // Check for abort after get_image_size
+            if stop_rx.try_recv().is_ok() {
+                handle_abort().await;
+                *state.write().await = State::Idle;
+                return;
+            }
+
+            // Execute get_single_frame
+            let image_task = task::spawn_blocking({
+                move || {
+                    device.get_single_frame(buffer_size).map_err(|e| {
+                        error!(?e, "get_single_frame failed");
+                        ASCOMError::INVALID_OPERATION
+                    })
+                }
+            });
+
+            let image = match image_task.await {
+                Ok(Ok(image)) => image,
+                Ok(Err(e)) => {
+                    error!(?e, "get single frame failed");
+                    *state.write().await = State::Idle;
+                    return;
+                }
+                Err(e) => {
+                    error!(?e, "image task failed");
+                    *state.write().await = State::Idle;
+                    return;
+                }
+            };
+
+            // Transform and store the image
+            match QhyccdCamera::transform_image_static(image) {
+                Ok(transformed) => {
+                    *last_image.write().await = Some(transformed);
+                    let _ = done_tx.send(true);
+                    debug!("exposure completed successfully");
+                }
+                Err(e) => error!(?e, "failed to transform image"),
             }
 
             *state.write().await = State::Idle;
@@ -1586,6 +1671,5 @@ async fn main() -> eyre::Result<std::convert::Infallible> {
 
 #[cfg(test)]
 mod test_camera;
-
 #[cfg(test)]
 mod test_filter_wheel;

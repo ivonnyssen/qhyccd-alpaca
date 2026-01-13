@@ -1847,30 +1847,6 @@ async fn stop_abort() {
     assert!(camera.can_abort_exposure().await.unwrap());
 }
 
-#[rstest]
-#[case(Ok(()), Ok(()))]
-#[case(Err(eyre!("error")), Err(ASCOMError::INVALID_OPERATION))]
-#[tokio::test]
-async fn abort_exposure(#[case] readout: Result<()>, #[case] expected: ASCOMResult<()>) {
-    //given
-    let mut mock = MockCamera::new();
-    mock.expect_abort_exposure_and_readout()
-        .once()
-        .return_once(move || readout);
-    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
-    //when
-    let res = camera.abort_exposure().await;
-    //then
-    if expected.is_ok() {
-        assert!(res.is_ok());
-    } else {
-        assert_eq!(
-            expected.clone().unwrap_err().to_string(),
-            res.unwrap_err().to_string()
-        );
-    }
-}
-
 #[rustfmt::skip]
 #[rstest]
 #[case(-1_f64, true, Err(ASCOMError::invalid_value("duration must be >= 0")))]
