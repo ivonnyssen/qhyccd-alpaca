@@ -27,15 +27,27 @@ jobs:
         toolchain: [stable, beta]
     steps:
       - uses: actions/checkout@v6
-      - name: Install libusb
+      - name: Install libusb (GitHub CI)
+        if: ${{ !env.ACT }}
         uses: awalsh128/cache-apt-pkgs-action@latest
         with:
           packages: libusb-1.0-0-dev
           version: 1.0
-      - name: Install QHYCCD SDK
+      - name: Install libusb (act)
+        if: ${{ env.ACT }}
+        run: sudo apt-get update && sudo apt-get install -y libusb-1.0-0-dev
+      - name: Install QHYCCD SDK (GitHub CI)
+        if: ${{ !env.ACT }}
         uses: ivonnyssen/qhyccd-sdk-install@v1
         with:
           version: "25.09.29"
+      - name: Install QHYCCD SDK (act)
+        if: ${{ env.ACT }}
+        run: |
+          wget -q https://www.qhyccd.com/file/repository/publish/SDK/25.09.29/sdk_linux64_25.09.29.tgz
+          tar -xzf sdk_linux64_25.09.29.tgz
+          sudo cp -r sdk_linux64_25.09.29/usr/* /usr/
+          sudo ldconfig
       - name: Install ${{ matrix.toolchain }}
         uses: dtolnay/rust-toolchain@master
         with:
@@ -77,15 +89,27 @@ jobs:
     name: ubuntu / stable / minimal-versions
     steps:
       - uses: actions/checkout@v6
-      - name: Install libusb
+      - name: Install libusb (GitHub CI)
+        if: ${{ !env.ACT }}
         uses: awalsh128/cache-apt-pkgs-action@latest
         with:
           packages: libusb-1.0-0-dev
           version: 1.0
-      - name: Install QHYCCD SDK
+      - name: Install libusb (act)
+        if: ${{ env.ACT }}
+        run: sudo apt-get update && sudo apt-get install -y libusb-1.0-0-dev
+      - name: Install QHYCCD SDK (GitHub CI)
+        if: ${{ !env.ACT }}
         uses: ivonnyssen/qhyccd-sdk-install@v1
         with:
           version: "25.09.29"
+      - name: Install QHYCCD SDK (act)
+        if: ${{ env.ACT }}
+        run: |
+          wget -q https://www.qhyccd.com/file/repository/publish/SDK/25.09.29/sdk_linux64_25.09.29.tgz
+          tar -xzf sdk_linux64_25.09.29.tgz
+          sudo cp -r sdk_linux64_25.09.29/usr/* /usr/
+          sudo ldconfig
       - name: Install stable
         uses: dtolnay/rust-toolchain@stable
       - name: Install nightly for -Zminimal-versions
@@ -122,15 +146,27 @@ jobs:
     name: ubuntu / stable / coverage
     steps:
       - uses: actions/checkout@v6
-      - name: Install libusb
+      - name: Install libusb (GitHub CI)
+        if: ${{ !env.ACT }}
         uses: awalsh128/cache-apt-pkgs-action@latest
         with:
           packages: libusb-1.0-0-dev
           version: 1.0
-      - name: Install QHYCCD SDK
+      - name: Install libusb (act)
+        if: ${{ env.ACT }}
+        run: sudo apt-get update && sudo apt-get install -y libusb-1.0-0-dev
+      - name: Install QHYCCD SDK (GitHub CI)
+        if: ${{ !env.ACT }}
         uses: ivonnyssen/qhyccd-sdk-install@v1
         with:
           version: "25.09.29"
+      - name: Install QHYCCD SDK (act)
+        if: ${{ env.ACT }}
+        run: |
+          wget -q https://www.qhyccd.com/file/repository/publish/SDK/25.09.29/sdk_linux64_25.09.29.tgz
+          tar -xzf sdk_linux64_25.09.29.tgz
+          sudo cp -r sdk_linux64_25.09.29/usr/* /usr/
+          sudo ldconfig
       - name: Install stable
         uses: dtolnay/rust-toolchain@stable
         with:

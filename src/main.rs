@@ -1652,6 +1652,4 @@ async fn main() -> eyre::Result<std::convert::Infallible> {
 }
 
 #[cfg(test)]
-mod test_camera;
-#[cfg(test)]
-mod test_filter_wheel;
+mod tests;
