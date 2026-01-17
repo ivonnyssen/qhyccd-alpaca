@@ -576,7 +576,7 @@ impl Camera for QhyccdCamera {
         }
     }
 
-    async fn max_adu(&self) -> ASCOMResult<i32> {
+    async fn max_adu(&self) -> ASCOMResult<u32> {
         ensure_connected!(self);
         self.device
             .get_parameter(qhyccd_rs::Control::OutputDataActualBits)
@@ -587,7 +587,7 @@ impl Camera for QhyccdCamera {
                 },
                 |bits| {
                     debug!(?bits, "ADU");
-                    Ok(2_i32.pow(bits as u32))
+                    Ok(2_u32.pow(bits as u32))
                 },
             )
     }
@@ -1493,7 +1493,7 @@ impl FilterWheel for QhyccdFilterWheel {
         Ok(names)
     }
     /// Returns the current filter wheel position
-    async fn position(&self) -> ASCOMResult<usize> {
+    async fn position(&self) -> ASCOMResult<Option<usize>> {
         ensure_connected!(self);
         let Some(target_position) = *self.target_position.read().await else {
             error!("target_position not set, but filter wheel connected");
@@ -1504,13 +1504,13 @@ impl FilterWheel for QhyccdFilterWheel {
             ASCOMError::INVALID_OPERATION
         })?;
         match actual == target_position {
-            true => Ok(actual as usize),
+            true => Ok(Some(actual as usize)),
             false => {
                 trace!(
                     "position - target_position set to {}, but filter wheel is at {}",
                     target_position, actual
                 );
-                Ok(usize::MAX) // Use usize::MAX to indicate moving state
+                Ok(None) // None indicates moving state
             }
         }
     }

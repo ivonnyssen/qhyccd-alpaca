@@ -316,7 +316,7 @@ async fn get_position_success_not_moving() {
     //when
     let position = filter_wheel.position().await;
     //then
-    assert_eq!(position.unwrap(), 5);
+    assert_eq!(position.unwrap(), Some(5));
 }
 
 #[tokio::test]
@@ -329,7 +329,7 @@ async fn get_position_success_moving() {
     //when
     let position = filter_wheel.position().await;
     //then
-    assert_eq!(position.unwrap(), -1);
+    assert_eq!(position.unwrap(), None);
 }
 
 #[tokio::test]
@@ -384,7 +384,7 @@ async fn set_position_success() {
     let res = filter_wheel.set_position(5).await;
     //then
     assert!(res.is_ok());
-    assert_eq!(filter_wheel.position().await.unwrap(), 5);
+    assert_eq!(filter_wheel.position().await.unwrap(), Some(5));
 }
 
 #[tokio::test]
@@ -425,7 +425,7 @@ async fn set_position_success_already_at_target() {
     let res = filter_wheel.set_position(5).await;
     //then
     assert!(res.is_ok());
-    assert_eq!(filter_wheel.position().await.unwrap(), 5);
+    assert_eq!(filter_wheel.position().await.unwrap(), Some(5));
 }
 
 #[tokio::test]
