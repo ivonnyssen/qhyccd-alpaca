@@ -132,8 +132,8 @@ pub fn new_camera(mut device: MockCamera, variant: MockCameraType) -> QhyccdCame
     let mut exposing = RwLock::new(State::Idle);
     let mut readout_speed_min_max_step = RwLock::new(None);
     let mut exposure_min_max_step = RwLock::new(None);
-    let mut last_exposure_start_time = RwLock::new(None);
-    let mut last_exposure_duration_us = RwLock::new(None);
+    let mut last_exposure_start_time = Arc::new(RwLock::new(None));
+    let mut last_exposure_duration_us = Arc::new(RwLock::new(None));
     let mut last_image = RwLock::new(None);
     let mut gain_min_max = RwLock::new(None);
     let mut offset_min_max = RwLock::new(None);
@@ -182,11 +182,11 @@ pub fn new_camera(mut device: MockCamera, variant: MockCameraType) -> QhyccdCame
         }
         MockCameraType::WithLastExposureStart { start_time } => {
             device.expect_is_open().times(1).returning(|| Ok(true));
-            last_exposure_start_time = RwLock::new(start_time);
+            last_exposure_start_time = Arc::new(RwLock::new(start_time));
         }
         MockCameraType::WithLastExposureDuration { duration } => {
             device.expect_is_open().times(1).returning(|| Ok(true));
-            last_exposure_duration_us = RwLock::new(duration);
+            last_exposure_duration_us = Arc::new(RwLock::new(duration));
         }
         MockCameraType::WithBinningAndValidBins {
             times,

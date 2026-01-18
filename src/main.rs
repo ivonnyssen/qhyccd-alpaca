@@ -65,8 +65,8 @@ struct QhyccdCamera {
     intended_roi: RwLock<Option<qhyccd_rs::CCDChipArea>>,
     readout_speed_min_max_step: RwLock<Option<(f64, f64, f64)>>,
     exposure_min_max_step: RwLock<Option<(f64, f64, f64)>>,
-    last_exposure_start_time: RwLock<Option<SystemTime>>,
-    last_exposure_duration_us: RwLock<Option<u32>>,
+    last_exposure_start_time: Arc<RwLock<Option<SystemTime>>>,
+    last_exposure_duration_us: Arc<RwLock<Option<u32>>>,
     last_image: Arc<RwLock<Option<ImageArray>>>,
     state: Arc<RwLock<State>>,
     gain_min_max: RwLock<Option<(f64, f64)>>,
@@ -439,16 +439,8 @@ impl Camera for QhyccdCamera {
                 error!(?e, "set_bin_mode failed");
                 ASCOMError::VALUE_NOT_SET
             })?;
-        //adjust start and num values
-        let old = *lock;
         *lock = bin_x;
-        let mut roi_lock = self.intended_roi.write().await;
-        *roi_lock = roi_lock.map(|roi| CCDChipArea {
-            start_x: (roi.start_x as f32 * old as f32 / bin_x as f32) as u32,
-            start_y: (roi.start_y as f32 * old as f32 / bin_x as f32) as u32,
-            width: (roi.width as f32 * old as f32 / bin_x as f32) as u32,
-            height: (roi.height as f32 * old as f32 / bin_x as f32) as u32,
-        });
+        // ROI stays in binned coordinates - no adjustment needed when binning changes
         Ok(())
     }
 
@@ -610,18 +602,27 @@ impl Camera for QhyccdCamera {
 
     async fn start_x(&self) -> ASCOMResult<u32> {
         ensure_connected!(self);
-        self.intended_roi
+        // Return start_x in binned coordinates
+        let roi = self
+            .intended_roi
             .read()
             .await
-            .map_or_else(|| Err(ASCOMError::VALUE_NOT_SET), |roi| Ok(roi.start_x))
+            .ok_or(ASCOMError::VALUE_NOT_SET)?;
+        let bin = *self.binning.read().await as u32;
+        let bin = if bin == 0 { 1 } else { bin }; // Treat 0 as 1
+        Ok(roi.start_x / bin)
     }
 
     async fn set_start_x(&self, start_x: u32) -> ASCOMResult {
         ensure_connected!(self);
+        // Convert from binned to unbinned coordinates
+        let bin = *self.binning.read().await as u32;
+        let bin = if bin == 0 { 1 } else { bin }; // Treat 0 as 1
+        let unbinned_start_x = start_x * bin;
         let mut lock = self.intended_roi.write().await;
         *lock = match *lock {
             Some(intended_roi) => Some(CCDChipArea {
-                start_x,
+                start_x: unbinned_start_x,
                 ..intended_roi
             }),
             None => {
@@ -634,18 +635,27 @@ impl Camera for QhyccdCamera {
 
     async fn start_y(&self) -> ASCOMResult<u32> {
         ensure_connected!(self);
-        self.intended_roi
+        // Return start_y in binned coordinates
+        let roi = self
+            .intended_roi
             .read()
             .await
-            .map_or_else(|| Err(ASCOMError::VALUE_NOT_SET), |roi| Ok(roi.start_y))
+            .ok_or(ASCOMError::VALUE_NOT_SET)?;
+        let bin = *self.binning.read().await as u32;
+        let bin = if bin == 0 { 1 } else { bin }; // Treat 0 as 1
+        Ok(roi.start_y / bin)
     }
 
     async fn set_start_y(&self, start_y: u32) -> ASCOMResult {
         ensure_connected!(self);
+        // Convert from binned to unbinned coordinates
+        let bin = *self.binning.read().await as u32;
+        let bin = if bin == 0 { 1 } else { bin }; // Treat 0 as 1
+        let unbinned_start_y = start_y * bin;
         let mut lock = self.intended_roi.write().await;
         *lock = match *lock {
             Some(intended_roi) => Some(CCDChipArea {
-                start_y,
+                start_y: unbinned_start_y,
                 ..intended_roi
             }),
             None => {
@@ -658,18 +668,27 @@ impl Camera for QhyccdCamera {
 
     async fn num_x(&self) -> ASCOMResult<u32> {
         ensure_connected!(self);
-        self.intended_roi
+        // Return width in binned coordinates
+        let roi = self
+            .intended_roi
             .read()
             .await
-            .map_or_else(|| Err(ASCOMError::VALUE_NOT_SET), |roi| Ok(roi.width))
+            .ok_or(ASCOMError::VALUE_NOT_SET)?;
+        let bin = *self.binning.read().await as u32;
+        let bin = if bin == 0 { 1 } else { bin }; // Treat 0 as 1
+        Ok(roi.width / bin)
     }
 
     async fn set_num_x(&self, num_x: u32) -> ASCOMResult {
         ensure_connected!(self);
+        // Convert from binned to unbinned coordinates
+        let bin = *self.binning.read().await as u32;
+        let bin = if bin == 0 { 1 } else { bin }; // Treat 0 as 1
+        let unbinned_width = num_x * bin;
         let mut lock = self.intended_roi.write().await;
         *lock = match *lock {
             Some(intended_roi) => Some(CCDChipArea {
-                width: num_x,
+                width: unbinned_width,
                 ..intended_roi
             }),
             None => {
@@ -682,18 +701,27 @@ impl Camera for QhyccdCamera {
 
     async fn num_y(&self) -> ASCOMResult<u32> {
         ensure_connected!(self);
-        self.intended_roi
+        // Return height in binned coordinates
+        let roi = self
+            .intended_roi
             .read()
             .await
-            .map_or_else(|| Err(ASCOMError::VALUE_NOT_SET), |roi| Ok(roi.height))
+            .ok_or(ASCOMError::VALUE_NOT_SET)?;
+        let bin = *self.binning.read().await as u32;
+        let bin = if bin == 0 { 1 } else { bin }; // Treat 0 as 1
+        Ok(roi.height / bin)
     }
 
     async fn set_num_y(&self, num_y: u32) -> ASCOMResult {
         ensure_connected!(self);
+        // Convert from binned to unbinned coordinates
+        let bin = *self.binning.read().await as u32;
+        let bin = if bin == 0 { 1 } else { bin }; // Treat 0 as 1
+        let unbinned_height = num_y * bin;
         let mut lock = self.intended_roi.write().await;
         *lock = match *lock {
             Some(intended_roi) => Some(CCDChipArea {
-                height: num_y,
+                height: unbinned_height,
                 ..intended_roi
             }),
             None => {
@@ -833,6 +861,7 @@ impl Camera for QhyccdCamera {
             debug!("no roi defined, but trying to start exposure");
             return Err(ASCOMError::invalid_value("no ROI defined for camera"));
         };
+        // ROI is already in unbinned coordinates, pass directly to qhyccd-rs
         self.device.set_roi(roi).map_err(|e| {
             debug!(?e, "failed to set ROI");
             ASCOMError::invalid_value("failed to set ROI")
@@ -842,22 +871,22 @@ impl Camera for QhyccdCamera {
         let (done_tx, done_rx) = watch::channel(false);
 
         let mut lock = self.state.write().await;
-        *lock = match *lock {
-            State::Idle => State::Exposing {
-                start: SystemTime::now(),
-                expected_duration_us: exposure_us,
-                stop_tx: Some(stop_tx),
-                done_rx,
-            },
-            State::Exposing { .. } => {
-                error!("camera already exposing");
-                return Err(ASCOMError::INVALID_OPERATION);
-            }
+        // Check if already exposing before setting timing
+        if matches!(*lock, State::Exposing { .. }) {
+            error!("camera already exposing");
+            return Err(ASCOMError::INVALID_OPERATION);
+        }
+
+        // Use a placeholder start time for State::Exposing - will be updated in async task
+        let placeholder_start_time = SystemTime::now();
+
+        *lock = State::Exposing {
+            start: placeholder_start_time,
+            expected_duration_us: exposure_us,
+            stop_tx: Some(stop_tx),
+            done_rx,
         };
         drop(lock);
-
-        *self.last_exposure_start_time.write().await = Some(SystemTime::now());
-        *self.last_exposure_duration_us.write().await = Some(exposure_us);
 
         self.device
             .set_parameter(qhyccd_rs::Control::Exposure, exposure_us as f64)
@@ -872,6 +901,8 @@ impl Camera for QhyccdCamera {
         let device_for_abort = self.device.clone();
         let state = self.state.clone();
         let last_image = self.last_image.clone();
+        let last_exposure_start_time = self.last_exposure_start_time.clone();
+        let last_exposure_duration_us = self.last_exposure_duration_us.clone();
 
         tokio::spawn(async move {
             debug!("DEBUG: New implementation started");
@@ -899,18 +930,42 @@ impl Camera for QhyccdCamera {
             };
 
             // Execute start_single_frame_exposure
+            // Capture timing INSIDE the blocking task immediately BEFORE exposure starts
+            // eprintln!("DEBUG TIMING: About to spawn start_single_frame_exposure at {:?}", SystemTime::now());
             let start_task = task::spawn_blocking({
                 let device = device.clone();
-                move || {
+                move || -> Result<SystemTime, ASCOMError> {
+                    // eprintln!("DEBUG TIMING: Inside spawn_blocking, before start_single_frame_exposure at {:?}", SystemTime::now());
+                    // Capture time immediately BEFORE start_single_frame_exposure
+                    // This matches when simulation calls state.start_exposure() which does:
+                    //   exposure_start = Instant::now()
+                    // The Instant::now() is captured at the START of start_exposure(), not after
+                    let actual_start_time = SystemTime::now();
+
                     device.start_single_frame_exposure().map_err(|e| {
                         error!(?e, "failed to start exposure: {:?}", e);
                         ASCOMError::INVALID_OPERATION
-                    })
+                    })?;
+
+                    // eprintln!("DEBUG TIMING: After start_single_frame_exposure at {:?}", SystemTime::now());
+                    Ok(actual_start_time)
                 }
             });
 
             match start_task.await {
-                Ok(Ok(())) => {}
+                Ok(Ok(start_time)) => {
+                    // Set timing immediately after exposure starts
+                    *last_exposure_start_time.write().await = Some(start_time);
+                    *last_exposure_duration_us.write().await = Some(exposure_us);
+
+                    // Update State with actual start time (for internal tracking)
+                    let mut state_lock = state.write().await;
+                    if let State::Exposing { ref mut start, .. } = *state_lock {
+                        *start = start_time;
+                    }
+                    drop(state_lock);
+                    // eprintln!("DEBUG TIMING: After updating state at {:?}", SystemTime::now());
+                }
                 Ok(Err(e)) => {
                     error!(?e, "start exposure failed");
                     *state.write().await = State::Idle;
@@ -938,19 +993,23 @@ impl Camera for QhyccdCamera {
             }
 
             // Execute get_image_size
+            // eprintln!("DEBUG TIMING: About to spawn get_image_size at {:?}", SystemTime::now());
             let size_task = task::spawn_blocking({
                 let device = device.clone();
                 move || {
-                    device.get_image_size().map_err(|e| {
+                    // eprintln!("DEBUG TIMING: Inside get_image_size spawn_blocking at {:?}", SystemTime::now());
+                    let result = device.get_image_size().map_err(|e| {
                         error!(?e, "get_image_size failed");
                         ASCOMError::INVALID_OPERATION
-                    })
+                    });
+                    // eprintln!("DEBUG TIMING: get_image_size completed at {:?}", SystemTime::now());
+                    result
                 }
             });
 
             let buffer_size = match size_task.await {
                 Ok(Ok(size)) => {
-                    debug!(?size);
+                    // eprintln!("DEBUG TIMING: After awaiting size_task at {:?}, size={:?}", SystemTime::now(), size);
                     size
                 }
                 Ok(Err(e)) => {
@@ -973,17 +1032,24 @@ impl Camera for QhyccdCamera {
             }
 
             // Execute get_single_frame
+            // eprintln!("DEBUG TIMING: About to spawn get_single_frame at {:?}", SystemTime::now());
             let image_task = task::spawn_blocking({
                 move || {
-                    device.get_single_frame(buffer_size).map_err(|e| {
+                    // eprintln!("DEBUG TIMING: Inside get_single_frame spawn_blocking at {:?}", SystemTime::now());
+                    let result = device.get_single_frame(buffer_size).map_err(|e| {
                         error!(?e, "get_single_frame failed");
                         ASCOMError::INVALID_OPERATION
-                    })
+                    });
+                    // eprintln!("DEBUG TIMING: get_single_frame completed at {:?}", SystemTime::now());
+                    result
                 }
             });
 
             let image = match image_task.await {
-                Ok(Ok(image)) => image,
+                Ok(Ok(image)) => {
+                    // eprintln!("DEBUG TIMING: After awaiting image_task at {:?}", SystemTime::now());
+                    image
+                },
                 Ok(Err(e)) => {
                     error!(?e, "get single frame failed");
                     *state.write().await = State::Idle;
@@ -1620,8 +1686,8 @@ async fn main() -> eyre::Result<std::convert::Infallible> {
             intended_roi: RwLock::new(None),
             readout_speed_min_max_step: RwLock::new(None),
             exposure_min_max_step: RwLock::new(None),
-            last_exposure_start_time: RwLock::new(None),
-            last_exposure_duration_us: RwLock::new(None),
+            last_exposure_start_time: Arc::new(RwLock::new(None)),
+            last_exposure_duration_us: Arc::new(RwLock::new(None)),
             last_image: Arc::new(RwLock::new(None)),
             state: Arc::new(RwLock::new(State::Idle)),
             gain_min_max: RwLock::new(None),
