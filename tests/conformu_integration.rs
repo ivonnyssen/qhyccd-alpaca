@@ -33,6 +33,8 @@ async fn conformu_camera_compliance_tests() -> Result<(), Box<dyn std::error::Er
     let mut child = Command::new("cargo")
         .args([
             "run",
+            "--features",
+            "simulation",
             "--",
             "--port",
             &port.to_string(),
@@ -116,6 +118,8 @@ async fn conformu_camera_compliance_tests() -> Result<(), Box<dyn std::error::Er
 //     let mut child = Command::new("cargo")
 //         .args([
 //             "run",
+//             "--features",
+//             "simulation",
 //             "--",
 //             "--port",
 //             &port.to_string(),
