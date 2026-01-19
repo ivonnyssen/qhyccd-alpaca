@@ -1,7 +1,8 @@
 #![warn(clippy::integer_division)]
 use core::f64;
-use qhyccd_rs::{CCDChipInfo, ImageData};
-use std::time::SystemTime;
+use qhyccd_rs::CCDChipInfo;
+use std::sync::Arc;
+use std::time::{Duration, SystemTime};
 use tokio::sync::RwLock;
 
 use ascom_alpaca::api::camera::{CameraState, ImageArray, SensorType};
@@ -57,8 +58,8 @@ struct QhyccdCamera {
     name: String,
     description: String,
     device: QhyCamera,
-    binning: RwLock<u32>,
-    valid_bins: RwLock<Option<Vec<u32>>>,
+    binning: RwLock<u8>,
+    valid_bins: RwLock<Option<Vec<u8>>>,
     target_temperature: RwLock<Option<f64>>,
     ccd_info: RwLock<Option<CCDChipInfo>>,
     intended_roi: RwLock<Option<qhyccd_rs::CCDChipArea>>,
@@ -66,77 +67,60 @@ struct QhyccdCamera {
     exposure_min_max_step: RwLock<Option<(f64, f64, f64)>>,
     last_exposure_start_time: RwLock<Option<SystemTime>>,
     last_exposure_duration_us: RwLock<Option<u32>>,
-    last_image: RwLock<Option<ImageArray>>,
-    state: RwLock<State>,
+    last_image: Arc<RwLock<Option<ImageArray>>>,
+    state: Arc<RwLock<State>>,
     gain_min_max: RwLock<Option<(f64, f64)>>,
     offset_min_max: RwLock<Option<(f64, f64)>>,
 }
 
 impl QhyccdCamera {
-    fn get_valid_binning_modes(&self) -> Vec<u32> {
+    fn get_valid_binning_modes(&self) -> Vec<u8> {
         let mut valid_binning_modes = Vec::with_capacity(6);
         self.device
             .is_control_available(qhyccd_rs::Control::CamBin1x1mode)
             .is_some()
-            .then(|| valid_binning_modes.push(1_u32));
+            .then(|| valid_binning_modes.push(1_u8));
         self.device
             .is_control_available(qhyccd_rs::Control::CamBin2x2mode)
             .is_some()
-            .then(|| valid_binning_modes.push(2_u32));
+            .then(|| valid_binning_modes.push(2_u8));
         self.device
             .is_control_available(qhyccd_rs::Control::CamBin3x3mode)
             .is_some()
-            .then(|| valid_binning_modes.push(3_u32));
+            .then(|| valid_binning_modes.push(3_u8));
         self.device
             .is_control_available(qhyccd_rs::Control::CamBin4x4mode)
             .is_some()
-            .then(|| valid_binning_modes.push(4_u32));
+            .then(|| valid_binning_modes.push(4_u8));
         self.device
             .is_control_available(qhyccd_rs::Control::CamBin6x6mode)
             .is_some()
-            .then(|| valid_binning_modes.push(6_u32));
+            .then(|| valid_binning_modes.push(6_u8));
         self.device
             .is_control_available(qhyccd_rs::Control::CamBin8x8mode)
             .is_some()
-            .then(|| valid_binning_modes.push(8_u32));
+            .then(|| valid_binning_modes.push(8_u8));
         valid_binning_modes
     }
 
-    fn validate_image_data_shape(
-        &self,
-        width: usize,
-        height: usize,
-        data_length: usize,
-        bytes_per_pixel: usize,
-    ) -> Result<()> {
-        match width * height <= data_length * bytes_per_pixel {
-            true => Ok(()),
-            false => {
-                error!(
-                    "image data length ({}) does not match width ({}) * height ({}) * bytes_per_pixel ({})",
-                    data_length, width, height, bytes_per_pixel
-                );
-                Err(eyre!(
-                    "image data length ({}) does not match width ({}) * height ({}) * bytes_per_pixel ({})",
-                    data_length,
-                    width,
-                    height,
-                    bytes_per_pixel
-                ))
-            }
-        }
-    }
-
-    fn transform_image(&self, image: qhyccd_rs::ImageData) -> Result<ImageArray> {
+    fn transform_image_static(image: qhyccd_rs::ImageData) -> Result<ImageArray> {
         match image.channels {
             1_u32 => match image.bits_per_pixel {
                 8_u32 => {
-                    self.validate_image_data_shape(
-                        image.width as usize,
-                        image.height as usize,
-                        image.data.len(),
-                        1_usize,
-                    )?;
+                    if image.width as usize * image.height as usize > image.data.len() {
+                        error!(
+                            "image data length ({}) does not match width ({}) * height ({})",
+                            image.data.len(),
+                            image.width,
+                            image.height
+                        );
+                        return Err(eyre!(
+                            "image data length ({}) does not match width ({}) * height ({})",
+                            image.data.len(),
+                            image.width,
+                            image.height
+                        ));
+                    }
                     let data: Vec<u8> =
                         image.data[0_usize..image.width as usize * image.height as usize].to_vec();
                     let array_base = Array3::from_shape_vec(
@@ -152,12 +136,20 @@ impl QhyccdCamera {
                     Ok(swapped.into())
                 }
                 16_u32 => {
-                    self.validate_image_data_shape(
-                        image.width as usize,
-                        image.height as usize,
-                        image.data.len(),
-                        2_usize,
-                    )?;
+                    if image.width as usize * image.height as usize * 2 > image.data.len() {
+                        error!(
+                            "image data length ({}) does not match width ({}) * height ({}) * 2",
+                            image.data.len(),
+                            image.width,
+                            image.height
+                        );
+                        return Err(eyre!(
+                            "image data length ({}) does not match width ({}) * height ({}) * 2",
+                            image.data.len(),
+                            image.width,
+                            image.height
+                        ));
+                    }
                     let data = image.data
                         [0_usize..image.width as usize * image.height as usize * 2_usize]
                         .to_vec()
@@ -350,7 +342,7 @@ macro_rules! ensure_connected {
 
 #[async_trait]
 impl Camera for QhyccdCamera {
-    async fn bayer_offset_x(&self) -> ASCOMResult<i32> {
+    async fn bayer_offset_x(&self) -> ASCOMResult<u8> {
         ensure_connected!(self);
         self.device
             .is_control_available(qhyccd_rs::Control::CamIsColor)
@@ -378,7 +370,7 @@ impl Camera for QhyccdCamera {
         }
     }
 
-    async fn bayer_offset_y(&self) -> ASCOMResult<i32> {
+    async fn bayer_offset_y(&self) -> ASCOMResult<u8> {
         ensure_connected!(self);
         self.device
             .is_control_available(qhyccd_rs::Control::CamIsColor)
@@ -419,12 +411,12 @@ impl Camera for QhyccdCamera {
         }
     }
 
-    async fn bin_x(&self) -> ASCOMResult<i32> {
+    async fn bin_x(&self) -> ASCOMResult<u8> {
         ensure_connected!(self);
-        Ok(*self.binning.read().await as i32)
+        Ok(*self.binning.read().await)
     }
 
-    async fn set_bin_x(&self, bin_x: i32) -> ASCOMResult {
+    async fn set_bin_x(&self, bin_x: u8) -> ASCOMResult {
         ensure_connected!(self);
         let valid_bins = self.valid_bins.read().await.clone().ok_or_else(|| {
             error!("valid_bins not set");
@@ -432,13 +424,13 @@ impl Camera for QhyccdCamera {
         })?;
         valid_bins
             .iter()
-            .find(|bin| **bin as i32 == bin_x)
+            .find(|bin| **bin == bin_x)
             .ok_or_else(|| {
                 error!("trying to set invalid bin value: {}", bin_x);
                 ASCOMError::invalid_value("bin value must be one of the valid bins")
             })?;
         let mut lock = self.binning.write().await;
-        if *lock as i32 == bin_x {
+        if (*lock) == bin_x {
             return Ok(());
         };
         self.device
@@ -449,7 +441,7 @@ impl Camera for QhyccdCamera {
             })?;
         //adjust start and num values
         let old = *lock;
-        *lock = bin_x as u32;
+        *lock = bin_x;
         let mut roi_lock = self.intended_roi.write().await;
         *roi_lock = roi_lock.map(|roi| CCDChipArea {
             start_x: (roi.start_x as f32 * old as f32 / bin_x as f32) as u32,
@@ -460,27 +452,27 @@ impl Camera for QhyccdCamera {
         Ok(())
     }
 
-    async fn bin_y(&self) -> ASCOMResult<i32> {
+    async fn bin_y(&self) -> ASCOMResult<u8> {
         self.bin_x().await
     }
 
-    async fn set_bin_y(&self, bin_y: i32) -> ASCOMResult {
+    async fn set_bin_y(&self, bin_y: u8) -> ASCOMResult {
         self.set_bin_x(bin_y).await
     }
 
-    async fn max_bin_x(&self) -> ASCOMResult<i32> {
+    async fn max_bin_x(&self) -> ASCOMResult<u8> {
         ensure_connected!(self);
         self.get_valid_binning_modes()
             .iter()
-            .map(|m| *m as i32)
             .max()
+            .copied()
             .ok_or_else(|| {
                 error!("valid_binning_modes is empty");
                 ASCOMError::INVALID_OPERATION
             })
     }
 
-    async fn max_bin_y(&self) -> ASCOMResult<i32> {
+    async fn max_bin_y(&self) -> ASCOMResult<u8> {
         self.max_bin_x().await
     }
 
@@ -496,11 +488,10 @@ impl Camera for QhyccdCamera {
         Err(ASCOMError::NOT_IMPLEMENTED)
     }
 
-    async fn exposure_max(&self) -> ASCOMResult<f64> {
+    async fn exposure_max(&self) -> ASCOMResult<Duration> {
         ensure_connected!(self);
         match *self.exposure_min_max_step.read().await {
-            Some((_min, max, _step)) => Ok(max / 1_000_000_f64), //values from the camera are in
-            //us
+            Some((_min, max, _step)) => Ok(Duration::from_micros(max as u64)), //values from the camera are in us
             None => {
                 error!("should have a max exposure value, but don't");
                 Err(ASCOMError::INVALID_VALUE)
@@ -508,11 +499,10 @@ impl Camera for QhyccdCamera {
         }
     }
 
-    async fn exposure_min(&self) -> ASCOMResult<f64> {
+    async fn exposure_min(&self) -> ASCOMResult<Duration> {
         ensure_connected!(self);
         match *self.exposure_min_max_step.read().await {
-            Some((min, _max, _step)) => Ok(min / 1_000_000_f64), //values from the camera are in
-            //us
+            Some((min, _max, _step)) => Ok(Duration::from_micros(min as u64)), //values from the camera are in us
             None => {
                 error!("should have a min exposure value, but don't");
                 Err(ASCOMError::INVALID_VALUE)
@@ -520,11 +510,10 @@ impl Camera for QhyccdCamera {
         }
     }
 
-    async fn exposure_resolution(&self) -> ASCOMResult<f64> {
+    async fn exposure_resolution(&self) -> ASCOMResult<Duration> {
         ensure_connected!(self);
         match *self.exposure_min_max_step.read().await {
-            Some((_min, _max, step)) => Ok(step / 1_000_000_f64), //values from the camera are in
-            //us
+            Some((_min, _max, step)) => Ok(Duration::from_micros(step as u64)), //values from the camera are in us
             None => {
                 error!("should have a step exposure value, but don't");
                 Err(ASCOMError::INVALID_VALUE)
@@ -579,15 +568,15 @@ impl Camera for QhyccdCamera {
         }
     }
 
-    async fn last_exposure_duration(&self) -> ASCOMResult<f64> {
+    async fn last_exposure_duration(&self) -> ASCOMResult<Duration> {
         ensure_connected!(self);
         match *self.last_exposure_duration_us.read().await {
-            Some(duration) => Ok(duration as f64 / 1_000_000_f64),
+            Some(duration) => Ok(Duration::from_micros(duration.into())),
             None => Err(ASCOMError::VALUE_NOT_SET),
         }
     }
 
-    async fn max_adu(&self) -> ASCOMResult<i32> {
+    async fn max_adu(&self) -> ASCOMResult<u32> {
         ensure_connected!(self);
         self.device
             .get_parameter(qhyccd_rs::Control::OutputDataActualBits)
@@ -598,44 +587,41 @@ impl Camera for QhyccdCamera {
                 },
                 |bits| {
                     debug!(?bits, "ADU");
-                    Ok(2_i32.pow(bits as u32))
+                    Ok(2_u32.pow(bits as u32))
                 },
             )
     }
 
-    async fn camera_xsize(&self) -> ASCOMResult<i32> {
+    async fn camera_x_size(&self) -> ASCOMResult<u32> {
         ensure_connected!(self);
         self.ccd_info.read().await.map_or_else(
             || Err(ASCOMError::VALUE_NOT_SET),
-            |ccd_info| Ok(ccd_info.image_width as i32),
+            |ccd_info| Ok(ccd_info.image_width),
         )
     }
 
-    async fn camera_ysize(&self) -> ASCOMResult<i32> {
+    async fn camera_y_size(&self) -> ASCOMResult<u32> {
         ensure_connected!(self);
         self.ccd_info.read().await.map_or_else(
             || Err(ASCOMError::VALUE_NOT_SET),
-            |ccd_info| Ok(ccd_info.image_height as i32),
+            |ccd_info| Ok(ccd_info.image_height),
         )
     }
 
-    async fn start_x(&self) -> ASCOMResult<i32> {
+    async fn start_x(&self) -> ASCOMResult<u32> {
         ensure_connected!(self);
-        self.intended_roi.read().await.map_or_else(
-            || Err(ASCOMError::VALUE_NOT_SET),
-            |roi| Ok(roi.start_x as i32),
-        )
+        self.intended_roi
+            .read()
+            .await
+            .map_or_else(|| Err(ASCOMError::VALUE_NOT_SET), |roi| Ok(roi.start_x))
     }
 
-    async fn set_start_x(&self, start_x: i32) -> ASCOMResult {
-        if start_x < 0 {
-            return Err(ASCOMError::INVALID_VALUE);
-        }
+    async fn set_start_x(&self, start_x: u32) -> ASCOMResult {
         ensure_connected!(self);
         let mut lock = self.intended_roi.write().await;
         *lock = match *lock {
             Some(intended_roi) => Some(CCDChipArea {
-                start_x: start_x as u32,
+                start_x,
                 ..intended_roi
             }),
             None => {
@@ -646,23 +632,20 @@ impl Camera for QhyccdCamera {
         Ok(())
     }
 
-    async fn start_y(&self) -> ASCOMResult<i32> {
+    async fn start_y(&self) -> ASCOMResult<u32> {
         ensure_connected!(self);
-        self.intended_roi.read().await.map_or_else(
-            || Err(ASCOMError::VALUE_NOT_SET),
-            |roi| Ok(roi.start_y as i32),
-        )
+        self.intended_roi
+            .read()
+            .await
+            .map_or_else(|| Err(ASCOMError::VALUE_NOT_SET), |roi| Ok(roi.start_y))
     }
 
-    async fn set_start_y(&self, start_y: i32) -> ASCOMResult {
-        if start_y < 0 {
-            return Err(ASCOMError::INVALID_VALUE);
-        }
+    async fn set_start_y(&self, start_y: u32) -> ASCOMResult {
         ensure_connected!(self);
         let mut lock = self.intended_roi.write().await;
         *lock = match *lock {
             Some(intended_roi) => Some(CCDChipArea {
-                start_y: start_y as u32,
+                start_y,
                 ..intended_roi
             }),
             None => {
@@ -673,23 +656,20 @@ impl Camera for QhyccdCamera {
         Ok(())
     }
 
-    async fn num_x(&self) -> ASCOMResult<i32> {
+    async fn num_x(&self) -> ASCOMResult<u32> {
         ensure_connected!(self);
-        self.intended_roi.read().await.map_or_else(
-            || Err(ASCOMError::VALUE_NOT_SET),
-            |roi| Ok(roi.width as i32),
-        )
+        self.intended_roi
+            .read()
+            .await
+            .map_or_else(|| Err(ASCOMError::VALUE_NOT_SET), |roi| Ok(roi.width))
     }
 
-    async fn set_num_x(&self, num_x: i32) -> ASCOMResult {
-        if num_x < 0 {
-            return Err(ASCOMError::INVALID_VALUE);
-        }
+    async fn set_num_x(&self, num_x: u32) -> ASCOMResult {
         ensure_connected!(self);
         let mut lock = self.intended_roi.write().await;
         *lock = match *lock {
             Some(intended_roi) => Some(CCDChipArea {
-                width: num_x as u32,
+                width: num_x,
                 ..intended_roi
             }),
             None => {
@@ -700,23 +680,20 @@ impl Camera for QhyccdCamera {
         Ok(())
     }
 
-    async fn num_y(&self) -> ASCOMResult<i32> {
+    async fn num_y(&self) -> ASCOMResult<u32> {
         ensure_connected!(self);
-        self.intended_roi.read().await.map_or_else(
-            || Err(ASCOMError::VALUE_NOT_SET),
-            |roi| Ok(roi.height as i32),
-        )
+        self.intended_roi
+            .read()
+            .await
+            .map_or_else(|| Err(ASCOMError::VALUE_NOT_SET), |roi| Ok(roi.height))
     }
 
-    async fn set_num_y(&self, num_y: i32) -> ASCOMResult {
-        if num_y < 0 {
-            return Err(ASCOMError::INVALID_VALUE);
-        }
+    async fn set_num_y(&self, num_y: u32) -> ASCOMResult {
         ensure_connected!(self);
         let mut lock = self.intended_roi.write().await;
         *lock = match *lock {
             Some(intended_roi) => Some(CCDChipArea {
-                height: num_y as u32,
+                height: num_y,
                 ..intended_roi
             }),
             None => {
@@ -727,10 +704,10 @@ impl Camera for QhyccdCamera {
         Ok(())
     }
 
-    async fn percent_completed(&self) -> ASCOMResult<i32> {
+    async fn percent_completed(&self) -> ASCOMResult<u8> {
         ensure_connected!(self);
         match *self.state.read().await {
-            State::Idle => Ok(100_i32),
+            State::Idle => Ok(100_u8),
             State::Exposing {
                 expected_duration_us,
                 ..
@@ -740,24 +717,24 @@ impl Camera for QhyccdCamera {
                     return Err(ASCOMError::INVALID_OPERATION);
                 };
 
-                let res = (100_f64 * remaining as f64 / expected_duration_us as f64) as i32;
-                if res > 100_i32 { Ok(100_i32) } else { Ok(res) }
+                let res = (100_f64 * remaining as f64 / expected_duration_us as f64) as u8;
+                if res > 100_u8 { Ok(100_u8) } else { Ok(res) }
             }
         }
     }
 
-    async fn readout_mode(&self) -> ASCOMResult<i32> {
+    async fn readout_mode(&self) -> ASCOMResult<usize> {
         ensure_connected!(self);
         self.device.get_readout_mode().map_or_else(
             |e| {
                 error!(?e, "get_readout_mode failed");
                 Err(ASCOMError::INVALID_OPERATION)
             },
-            |readout_mode| Ok(readout_mode as i32),
+            |readout_mode| Ok(readout_mode as usize),
         )
     }
 
-    async fn set_readout_mode(&self, readout_mode: i32) -> ASCOMResult {
+    async fn set_readout_mode(&self, readout_mode: usize) -> ASCOMResult {
         let readout_mode = readout_mode as u32;
         ensure_connected!(self);
         let number = self.device.get_number_of_readout_modes().map_err(|e| {
@@ -831,10 +808,7 @@ impl Camera for QhyccdCamera {
     }
 
     #[instrument(level = "trace")]
-    async fn start_exposure(&self, duration: f64, light: bool) -> ASCOMResult {
-        if duration < 0.0 {
-            return Err(ASCOMError::invalid_value("duration must be >= 0"));
-        }
+    async fn start_exposure(&self, duration: Duration, light: bool) -> ASCOMResult {
         if !light {
             return Err(ASCOMError::invalid_operation("dark frames not supported"));
         }
@@ -846,12 +820,12 @@ impl Camera for QhyccdCamera {
             return Err(ASCOMError::invalid_value("StartY > NumY"));
         }
         if self.num_x().await?
-            > (self.camera_xsize().await? as f32 / self.bin_x().await? as f32) as i32
+            > (self.camera_x_size().await? as f32 / self.bin_x().await? as f32) as u32
         {
             return Err(ASCOMError::invalid_value("NumX > CameraXSize"));
         }
         if self.num_y().await?
-            > (self.camera_ysize().await? as f32 / self.bin_y().await? as f32) as i32
+            > (self.camera_y_size().await? as f32 / self.bin_y().await? as f32) as u32
         {
             return Err(ASCOMError::invalid_value("NumY > CameraYSize"));
         }
@@ -863,8 +837,8 @@ impl Camera for QhyccdCamera {
             debug!(?e, "failed to set ROI");
             ASCOMError::invalid_value("failed to set ROI")
         })?;
-        let exposure_us = (duration * 1_000_000_f64) as u32;
-        let (stop_tx, stop_rx) = oneshot::channel::<StopExposure>();
+        let exposure_us = (duration.as_secs_f64() * 1_000_000_f64) as u32;
+        let (stop_tx, mut stop_rx) = oneshot::channel::<StopExposure>();
         let (done_tx, done_rx) = watch::channel(false);
 
         let mut lock = self.state.write().await;
@@ -880,6 +854,7 @@ impl Camera for QhyccdCamera {
                 return Err(ASCOMError::INVALID_OPERATION);
             }
         };
+        drop(lock);
 
         *self.last_exposure_start_time.write().await = Some(SystemTime::now());
         *self.last_exposure_duration_us.write().await = Some(exposure_us);
@@ -892,50 +867,148 @@ impl Camera for QhyccdCamera {
             })?;
 
         let device = self.device.clone();
-        let image = task::spawn_blocking(move || {
-            device.start_single_frame_exposure().map_err(|e| {
-                error!(?e, "failed to stop exposure: {:?}", e);
-                ASCOMError::INVALID_OPERATION
-            })?;
-            let buffer_size = device.get_image_size().map_err(|e| {
-                error!(?e, "get_image_size failed");
-                ASCOMError::INVALID_OPERATION
-            })?;
-            debug!(?buffer_size);
+        // Create separate device instance for abort to ensure proper SDK synchronization
+        // According to SDK docs, after successful abort we must complete data exchange
+        let device_for_abort = self.device.clone();
+        let state = self.state.clone();
+        let last_image = self.last_image.clone();
 
-            let image = device.get_single_frame(buffer_size).map_err(|e| {
-                error!(?e, "get_single_frame failed");
-                ASCOMError::INVALID_OPERATION
-            })?;
-            Ok::<ImageData, ascom_alpaca::ASCOMError>(image)
-        });
-        let stop = stop_rx;
-        tokio::select! {
-            image = image => {
-                match image {
-                    Ok(image_result) => {
-                        let Ok(image) = image_result else {
-                            error!("failed to get image");
-                            return Err(ASCOMError::INVALID_OPERATION);
-                        };
-                        let  mut lock = self.last_image.write().await;
-                        *lock = Some(self.transform_image(image).map_err(|e| {
-                                error!(?e, "failed to transform image");
-                                ASCOMError::INVALID_OPERATION
-                        })?);
-                        let _ = done_tx.send(true);
+        tokio::spawn(async move {
+            debug!("DEBUG: New implementation started");
+            // Helper function to handle abort and data exchange
+            let handle_abort = || async {
+                debug!("DEBUG: Handling abort");
+                match device_for_abort.abort_exposure_and_readout() {
+                    Ok(()) => {
+                        debug!("abort succeeded, completing data exchange for sync");
+                        if let Ok(buffer_size) = device_for_abort.get_image_size() {
+                            if let Ok(image) = device_for_abort.get_single_frame(buffer_size) {
+                                match QhyccdCamera::transform_image_static(image) {
+                                    Ok(transformed) => {
+                                        *last_image.write().await = Some(transformed);
+                                        debug!("aborted exposure data stored");
+                                    }
+                                    Err(e) => error!(?e, "failed to transform aborted image"),
+                                }
+                            }
+                        }
                     }
-                    Err(e) => {
-                        error!(?e, "failed to get image");
-                        return Err(ASCOMError::INVALID_OPERATION);
-                    }
+                    Err(e) => error!(?e, "failed to abort exposure"),
                 }
-            },
-            _ = stop => self.device.abort_exposure_and_readout().map_err(|e|{
-                        error!(?e, "failed to stop exposure: {:?}", e);
-                        ASCOMError::INVALID_OPERATION })?,
-        }
-        *lock = State::Idle;
+                debug!("exposure aborted");
+            };
+
+            // Execute start_single_frame_exposure
+            let start_task = task::spawn_blocking({
+                let device = device.clone();
+                move || {
+                    device.start_single_frame_exposure().map_err(|e| {
+                        error!(?e, "failed to start exposure: {:?}", e);
+                        ASCOMError::INVALID_OPERATION
+                    })
+                }
+            });
+
+            match start_task.await {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => {
+                    error!(?e, "start exposure failed");
+                    *state.write().await = State::Idle;
+                    return;
+                }
+                Err(e) => {
+                    error!(?e, "start task failed");
+                    *state.write().await = State::Idle;
+                    return;
+                }
+            }
+
+            // Check for abort after start_single_frame_exposure
+            debug!("DEBUG: Checking for abort after start_single_frame_exposure");
+            match stop_rx.try_recv() {
+                Ok(_) => {
+                    debug!("DEBUG: Abort detected after start_single_frame_exposure!");
+                    handle_abort().await;
+                    *state.write().await = State::Idle;
+                    return;
+                }
+                Err(e) => {
+                    debug!("DEBUG: No abort signal: {:?}", e);
+                }
+            }
+
+            // Execute get_image_size
+            let size_task = task::spawn_blocking({
+                let device = device.clone();
+                move || {
+                    device.get_image_size().map_err(|e| {
+                        error!(?e, "get_image_size failed");
+                        ASCOMError::INVALID_OPERATION
+                    })
+                }
+            });
+
+            let buffer_size = match size_task.await {
+                Ok(Ok(size)) => {
+                    debug!(?size);
+                    size
+                }
+                Ok(Err(e)) => {
+                    error!(?e, "get image size failed");
+                    *state.write().await = State::Idle;
+                    return;
+                }
+                Err(e) => {
+                    error!(?e, "size task failed");
+                    *state.write().await = State::Idle;
+                    return;
+                }
+            };
+
+            // Check for abort after get_image_size
+            if stop_rx.try_recv().is_ok() {
+                handle_abort().await;
+                *state.write().await = State::Idle;
+                return;
+            }
+
+            // Execute get_single_frame
+            let image_task = task::spawn_blocking({
+                move || {
+                    device.get_single_frame(buffer_size).map_err(|e| {
+                        error!(?e, "get_single_frame failed");
+                        ASCOMError::INVALID_OPERATION
+                    })
+                }
+            });
+
+            let image = match image_task.await {
+                Ok(Ok(image)) => image,
+                Ok(Err(e)) => {
+                    error!(?e, "get single frame failed");
+                    *state.write().await = State::Idle;
+                    return;
+                }
+                Err(e) => {
+                    error!(?e, "image task failed");
+                    *state.write().await = State::Idle;
+                    return;
+                }
+            };
+
+            // Transform and store the image
+            match QhyccdCamera::transform_image_static(image) {
+                Ok(transformed) => {
+                    *last_image.write().await = Some(transformed);
+                    let _ = done_tx.send(true);
+                    debug!("exposure completed successfully");
+                }
+                Err(e) => error!(?e, "failed to transform image"),
+            }
+
+            *state.write().await = State::Idle;
+        });
+
         Ok(())
     }
 
@@ -968,10 +1041,23 @@ impl Camera for QhyccdCamera {
 
     async fn abort_exposure(&self) -> ASCOMResult {
         ensure_connected!(self);
-        self.device.abort_exposure_and_readout().map_err(|e| {
-            error!(?e, "stop_exposure failed");
-            ASCOMError::INVALID_OPERATION
-        })
+
+        let mut state_lock = self.state.write().await;
+        match &mut *state_lock {
+            State::Exposing { stop_tx, .. } => {
+                if let Some(tx) = stop_tx.take() {
+                    let _ = tx.send(StopExposure { _want_image: false });
+                    Ok(())
+                } else {
+                    // Channel already used
+                    Err(ASCOMError::INVALID_OPERATION)
+                }
+            }
+            State::Idle => {
+                // Nothing to abort
+                Ok(())
+            }
+        }
     }
 
     async fn pixel_size_x(&self) -> ASCOMResult<f64> {
@@ -1247,13 +1333,12 @@ impl Camera for QhyccdCamera {
 
     async fn can_fast_readout(&self) -> ASCOMResult<bool> {
         ensure_connected!(self);
-        self.device
+        // Return true if both Speed control is available AND we have valid min/max/step values
+        Ok(self
+            .device
             .is_control_available(qhyccd_rs::Control::Speed)
-            .ok_or_else(|| {
-                debug!("readout speed control not available");
-                ASCOMError::NOT_IMPLEMENTED
-            })?;
-        Ok(self.readout_speed_min_max_step.read().await.is_some())
+            .is_some()
+            && self.readout_speed_min_max_step.read().await.is_some())
     }
 
     async fn fast_readout(&self) -> ASCOMResult<bool> {
@@ -1408,7 +1493,7 @@ impl FilterWheel for QhyccdFilterWheel {
         Ok(names)
     }
     /// Returns the current filter wheel position
-    async fn position(&self) -> ASCOMResult<i32> {
+    async fn position(&self) -> ASCOMResult<Option<usize>> {
         ensure_connected!(self);
         let Some(target_position) = *self.target_position.read().await else {
             error!("target_position not set, but filter wheel connected");
@@ -1419,25 +1504,25 @@ impl FilterWheel for QhyccdFilterWheel {
             ASCOMError::INVALID_OPERATION
         })?;
         match actual == target_position {
-            true => Ok(actual as i32),
+            true => Ok(Some(actual as usize)),
             false => {
                 trace!(
                     "position - target_position set to {}, but filter wheel is at {}",
                     target_position, actual
                 );
-                Ok(-1)
+                Ok(None) // None indicates moving state
             }
         }
     }
 
     /// Sets the filter wheel position
-    async fn set_position(&self, position: i32) -> ASCOMResult {
+    async fn set_position(&self, position: usize) -> ASCOMResult {
         ensure_connected!(self);
         let Some(number_of_filters) = *self.number_of_filters.read().await else {
             error!("number of filters not set, but filter wheel connected");
             return Err(ASCOMError::NOT_CONNECTED);
         };
-        if !(0..number_of_filters as i32).contains(&position) {
+        if !(0..number_of_filters).contains(&(position as u32)) {
             return Err(ASCOMError::INVALID_VALUE);
         }
         let mut lock = self.target_position.write().await;
@@ -1528,7 +1613,7 @@ async fn main() -> eyre::Result<std::convert::Infallible> {
             name: c.id().to_owned(),
             description: "QHYCCD camera".to_owned(),
             device: c.clone(),
-            binning: RwLock::new(1_u32),
+            binning: RwLock::new(1_u8),
             valid_bins: RwLock::new(None),
             target_temperature: RwLock::new(None),
             ccd_info: RwLock::new(None),
@@ -1537,8 +1622,8 @@ async fn main() -> eyre::Result<std::convert::Infallible> {
             exposure_min_max_step: RwLock::new(None),
             last_exposure_start_time: RwLock::new(None),
             last_exposure_duration_us: RwLock::new(None),
-            last_image: RwLock::new(None),
-            state: RwLock::new(State::Idle),
+            last_image: Arc::new(RwLock::new(None)),
+            state: Arc::new(RwLock::new(State::Idle)),
             gain_min_max: RwLock::new(None),
             offset_min_max: RwLock::new(None),
         };
@@ -1567,7 +1652,4 @@ async fn main() -> eyre::Result<std::convert::Infallible> {
 }
 
 #[cfg(test)]
-mod test_camera;
-
-#[cfg(test)]
-mod test_filter_wheel;
+mod tests;
