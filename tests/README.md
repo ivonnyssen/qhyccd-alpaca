@@ -12,10 +12,17 @@ The `conformu_integration.rs` file contains integration tests that use ConformU 
 ### Running the Tests
 
 ```bash
-# Run ConformU integration tests (requires ConformU installation)
+# Run ConformU integration tests with simulated hardware (no real camera required)
+cargo test --test conformu_integration --features simulation -- --ignored
+
+# Run ConformU integration tests with real hardware (requires connected QHYCCD camera)
 cargo test --test conformu_integration -- --ignored
 
-# Run specific test
+# Run specific test with simulation
+cargo test --test conformu_integration conformu_camera_compliance_tests --features simulation -- --ignored
+cargo test --test conformu_integration conformu_filterwheel_compliance_tests --features simulation -- --ignored
+
+# Run specific test with real hardware
 cargo test --test conformu_integration conformu_camera_compliance_tests -- --ignored
 cargo test --test conformu_integration conformu_filterwheel_compliance_tests -- --ignored
 ```
