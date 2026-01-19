@@ -151,7 +151,7 @@ async fn set_start_x(
         assert_eq!(
             *camera.intended_roi.read().await,
             Some(CCDChipArea {
-                start_x: x as u32,
+                start_x: x,
                 start_y: 0,
                 width: 100,
                 height: 100,
@@ -323,7 +323,7 @@ async fn set_num_x(
             Some(CCDChipArea {
                 start_x: 0,
                 start_y: 0,
-                width: w as u32,
+                width: w,
                 height: 100,
             })
         );
@@ -409,7 +409,7 @@ async fn set_num_y(
                 start_x: 0,
                 start_y: 0,
                 width: 1001,
-                height: h as u32,
+                height: h,
             })
         );
     } else {

@@ -201,8 +201,8 @@ async fn set_bin_x_with_roi(
     assert_eq!(camera.camera_y_size().await.unwrap(), 1080_u32);
     assert_eq!(camera.bin_x().await.unwrap(), 2_u8);
     assert_eq!(camera.bin_y().await.unwrap(), 2_u8);
-    assert_eq!(camera.start_x().await.unwrap(), expected_start_x as u32);
-    assert_eq!(camera.start_y().await.unwrap(), expected_start_y as u32);
+    assert_eq!(camera.start_x().await.unwrap(), expected_start_x);
+    assert_eq!(camera.start_y().await.unwrap(), expected_start_y);
     assert_eq!(camera.num_x().await.unwrap(), 960_u32);
     assert_eq!(camera.num_y().await.unwrap(), 540_u32);
 }

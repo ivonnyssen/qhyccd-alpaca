@@ -54,8 +54,8 @@ async fn last_exposure_duration(
 #[case(Ok(5_000_u32), 1, State::Exposing { start: SystemTime::UNIX_EPOCH, expected_duration_us: 10_000_u32, stop_tx: None, done_rx: watch::channel(false).1, }, Ok(50_u8))]
 #[case(Ok(10_000_u32), 1, State::Exposing { start: SystemTime::UNIX_EPOCH, expected_duration_us: 10_000_u32, stop_tx: None, done_rx: watch::channel(false).1, }, Ok(100_u8))]
 #[case(Ok(10_000_u32), 0, State::Idle {}, Ok(100_u8))]
-#[case(Ok(std::u32::MIN), 1, State::Exposing { start: SystemTime::UNIX_EPOCH, expected_duration_us: 0_u32, stop_tx: None, done_rx: watch::channel(false).1, }, Ok(0_u8))]
-#[case(Ok(std::u32::MAX), 1, State::Exposing { start: SystemTime::UNIX_EPOCH, expected_duration_us: 0_u32, stop_tx: None, done_rx: watch::channel(false).1, }, Ok(100_u8))]
+#[case(Ok(u32::MIN), 1, State::Exposing { start: SystemTime::UNIX_EPOCH, expected_duration_us: 0_u32, stop_tx: None, done_rx: watch::channel(false).1, }, Ok(0_u8))]
+#[case(Ok(u32::MAX), 1, State::Exposing { start: SystemTime::UNIX_EPOCH, expected_duration_us: 0_u32, stop_tx: None, done_rx: watch::channel(false).1, }, Ok(100_u8))]
 #[case(Err(eyre!("error")), 1, State::Exposing { start: SystemTime::UNIX_EPOCH, expected_duration_us: 10_000_u32, stop_tx: None, done_rx: watch::channel(false).1, }, Err(ASCOMError::INVALID_OPERATION))]
 #[tokio::test]
 async fn percent_completed(
