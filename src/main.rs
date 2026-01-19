@@ -430,7 +430,7 @@ impl Camera for QhyccdCamera {
                 ASCOMError::invalid_value("bin value must be one of the valid bins")
             })?;
         let mut lock = self.binning.write().await;
-        if (*lock as u8) == bin_x {
+        if (*lock) == bin_x {
             return Ok(());
         };
         self.device
