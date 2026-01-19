@@ -26,7 +26,7 @@ jobs:
           packages: libusb-1.0-0-dev
           version: 1.0
       - name: Install QHYCCD SDK
-        uses: ivonnyssen/qhyccd-sdk-install@v1
+        uses: ivonnyssen/qhyccd-sdk-install@v2
         with:
           version: "25.09.29"
       - name: Install nightly
