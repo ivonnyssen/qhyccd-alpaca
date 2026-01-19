@@ -48,7 +48,7 @@ jobs:
           sudo tar -xzf conformu-linux-x64.tar.gz -C /usr/local/bin
           sudo chmod +x /usr/local/bin/conformu
       - name: Build project
-        run: cargo build --all --release
+        run: cargo build --release --features simulation
       - name: Run ConformU tests
         timeout-minutes: 10
-        run: cargo test --test conformu_integration -- --ignored
+        run: cargo test --test conformu_integration --features simulation -- --ignored
