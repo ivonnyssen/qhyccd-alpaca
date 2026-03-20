@@ -51,4 +51,4 @@ jobs:
         run: cargo build --release --features simulation
       - name: Run ConformU tests
         timeout-minutes: 10
-        run: cargo test --test conformu_integration --features simulation -- --ignored
+        run: cargo test --test conformu_integration --features simulation -- --ignored --test-threads=1
