@@ -23,6 +23,7 @@ async fn server_builder_with_port() {
 }
 
 #[tokio::test]
+#[cfg_attr(miri, ignore)]
 async fn server_builder_build_no_devices() {
     //given
     let ctx = MockSdk::new_context();
@@ -51,6 +52,7 @@ async fn server_builder_build_no_devices() {
 }
 
 #[tokio::test]
+#[cfg_attr(miri, ignore)]
 async fn server_builder_build_with_camera() {
     //given
     let ctx = MockSdk::new_context();
@@ -82,6 +84,7 @@ async fn server_builder_build_with_camera() {
 }
 
 #[tokio::test]
+#[cfg_attr(miri, ignore)]
 async fn server_builder_build_with_filter_wheel() {
     //given
     let ctx = MockSdk::new_context();
@@ -113,6 +116,7 @@ async fn server_builder_build_with_filter_wheel() {
 }
 
 #[tokio::test]
+#[cfg_attr(miri, ignore)]
 async fn server_builder_build_sdk_new_fails() {
     //given
     let ctx = MockSdk::new_context();
@@ -127,6 +131,7 @@ async fn server_builder_build_sdk_new_fails() {
 }
 
 #[tokio::test]
+#[cfg_attr(miri, ignore)]
 async fn server_builder_build_version_fails() {
     //given
     let ctx = MockSdk::new_context();
