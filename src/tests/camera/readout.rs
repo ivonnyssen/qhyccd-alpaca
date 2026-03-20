@@ -7,10 +7,7 @@ use super::*;
 #[case(Ok(2_u32), Ok(2_usize))]
 #[case(Err(eyre!("error")), Err(ASCOMError::INVALID_OPERATION))]
 #[tokio::test]
-async fn readout_mode(
-    #[case] get_readout_mode: Result<u32>,
-    #[case] expected: ASCOMResult<usize>,
-) {
+async fn readout_mode(#[case] get_readout_mode: Result<u32>, #[case] expected: ASCOMResult<usize>) {
     //given
     let mut mock = MockCamera::new();
     mock.expect_get_readout_mode()
@@ -40,9 +37,7 @@ async fn set_readout_mode_success() {
     mock.expect_get_readout_mode_resolution()
         .once()
         .returning(|_| Ok((1920, 1080)));
-    mock.expect_set_readout_mode()
-        .once()
-        .returning(|_| Ok(()));
+    mock.expect_set_readout_mode().once().returning(|_| Ok(()));
     let camera = new_camera(
         mock,
         MockCameraType::WithCCDInfo {

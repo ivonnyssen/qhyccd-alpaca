@@ -84,7 +84,11 @@ mod tests {
     fn resolve_log_level_invalid() {
         let result = resolve_log_level(Some("invalid".to_owned()));
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Invalid log level"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Invalid log level")
+        );
     }
-
 }

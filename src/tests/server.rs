@@ -1,7 +1,7 @@
 //! ServerBuilder tests
 
-use crate::mocks::{MockCamera, MockFilterWheel, MockSdk};
 use crate::ServerBuilder;
+use crate::mocks::{MockCamera, MockFilterWheel, MockSdk};
 use eyre::eyre;
 
 #[tokio::test]
