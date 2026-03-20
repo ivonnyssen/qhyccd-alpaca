@@ -25,7 +25,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libusb-1.0-0-dev
       - name: Install QHYCCD SDK (GitHub CI)
         if: ${{ !env.ACT }}
-        uses: ivonnyssen/qhyccd-sdk-install@v1
+        uses: ivonnyssen/qhyccd-sdk-install@v2
         with:
           version: "25.09.29"
       - name: Install QHYCCD SDK (act)
