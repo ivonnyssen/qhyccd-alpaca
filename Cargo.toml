@@ -29,7 +29,7 @@ exclude = ["/.github", "/.vscode"]
 simulation = ["qhyccd-rs/simulation"]
 
 [dependencies]
-ascom-alpaca = { version = "1.0.0-beta.10", features = [
+ascom-alpaca = { git = "https://github.com/ivonnyssen/ascom-alpaca-rs.git", branch = "fix/macos-trait-recursion-overflow", default-features = false, features = [
   "server",
   "camera",
   "filter_wheel",

@@ -302,7 +302,7 @@ async fn start_exposure_fail_is_exposing_no_miri() {
 #[case(vec![0, 0, 1, 0, 2, 0, 3, 0, 4, 0, 5, 0], 3, 2, 16, 2, Err(ASCOMError::INVALID_OPERATION), Array3::<u16>::zeros((1_usize, 1_usize, 3)).into())] //unsupported channel
 #[case(vec![0, 0, 1, 0, 2, 0, 3, 0, 4, 0, 5, 0], 3, 2, 32, 1, Err(ASCOMError::INVALID_OPERATION), Array3::<u16>::zeros((1_usize, 1_usize, 3)).into())] //unsupported bpp*/
 #[tokio::test]
-#[ignore]
+#[cfg_attr(miri, ignore)]
 async fn start_exposure_success_no_miri(
     #[case] data: Vec<u8>,
     #[case] width: u32,
@@ -332,14 +332,7 @@ async fn start_exposure_success_no_miri(
         })
         .returning(|_| Ok(()));
     let mut clone_mock = MockCamera::new();
-    clone_mock
-        .expect_start_single_frame_exposure()
-        .once()
-        .returning(|| Ok(()));
-    clone_mock
-        .expect_get_image_size()
-        .once()
-        .returning(|| Ok(100_usize));
+    // get_single_frame is called on device directly (moved into last spawn_blocking)
     clone_mock
         .expect_get_single_frame()
         .once()
@@ -353,8 +346,28 @@ async fn start_exposure_success_no_miri(
                 channels,
             })
         });
-    clone_mock.expect_clone().once().returning(MockCamera::new);
-    mock.expect_clone().once().return_once(move || clone_mock);
+    // device is cloned twice in the spawned task:
+    // 1st clone (line 903) → start_single_frame_exposure
+    // 2nd clone (line 942) → get_image_size
+    let mut start_clone = MockCamera::new();
+    start_clone
+        .expect_start_single_frame_exposure()
+        .once()
+        .returning(|| Ok(()));
+    let mut size_clone = MockCamera::new();
+    size_clone
+        .expect_get_image_size()
+        .once()
+        .returning(|| Ok(100_usize));
+    let inner_mocks = std::sync::Mutex::new(vec![size_clone, start_clone]);
+    clone_mock.expect_clone().times(2).returning(move || {
+        inner_mocks.lock().unwrap().pop().unwrap()
+    });
+    // self.device is cloned twice: once for device, once for device_for_abort
+    let clone_mock = std::sync::Mutex::new(Some(clone_mock));
+    mock.expect_clone().times(2).returning(move || {
+        clone_mock.lock().unwrap().take().unwrap_or_default()
+    });
     let camera = new_camera(
         mock,
         MockCameraType::WithBinningAndRoiAndCCDInfoUnlimited {
@@ -406,11 +419,11 @@ async fn start_exposure_success_no_miri(
 #[case(true, true, 1, true, 1, true, 1, true, 1, 1, Ok(()))]
 #[case(false, true, 0, true, 0, true, 0, true, 0, 0, Err(ASCOMError::invalid_value("failed to set ROI")))]
 #[case(true, false, 1, true, 0, true, 0, true, 0, 0, Err(ASCOMError::INVALID_OPERATION))]
-#[case(true, true, 1, false, 1, true, 1, true, 1, 1, Ok(()))]
+#[case(true, true, 1, false, 1, true, 0, true, 0, 1, Ok(()))]
 #[case(true, true, 1, true, 1, false, 1, true, 0, 1, Ok(()))]
 #[case(true, true, 1, true, 1, true, 1, false, 1, 1, Ok(()))]
 #[tokio::test]
-#[ignore]
+#[cfg_attr(miri, ignore)]
 async fn start_exposure_fail_no_miri(
     #[case] set_roi_ok: bool,
     #[case] set_parameter_ok: bool,
@@ -456,26 +469,7 @@ async fn start_exposure_fail_no_miri(
             }
         });
     let mut clone_mock = MockCamera::new();
-    clone_mock
-        .expect_start_single_frame_exposure()
-        .times(start_single_frame_times)
-        .returning(move || {
-            if start_single_frame_ok {
-                Ok(())
-            } else {
-                Err(eyre!("error"))
-            }
-        });
-    clone_mock
-        .expect_get_image_size()
-        .times(get_image_size_times)
-        .returning(move || {
-            if get_image_size_ok {
-                Ok(100)
-            } else {
-                Err(eyre!("error"))
-            }
-        });
+    // get_single_frame is called on device directly (moved into last spawn_blocking)
     clone_mock
         .expect_get_single_frame()
         .times(get_singleframe_times)
@@ -494,12 +488,44 @@ async fn start_exposure_fail_no_miri(
             }
         });
     if clone_times > 0 {
-        clone_mock.expect_clone().once().returning(MockCamera::new);
+        // device is cloned in spawn_blocking tasks:
+        // 1st clone → start_single_frame_exposure
+        // 2nd clone → get_image_size (only if start succeeds)
+        let mut start_clone = MockCamera::new();
+        start_clone
+            .expect_start_single_frame_exposure()
+            .times(start_single_frame_times)
+            .returning(move || {
+                if start_single_frame_ok {
+                    Ok(())
+                } else {
+                    Err(eyre!("error"))
+                }
+            });
+        let mut size_clone = MockCamera::new();
+        size_clone
+            .expect_get_image_size()
+            .times(get_image_size_times)
+            .returning(move || {
+                if get_image_size_ok {
+                    Ok(100)
+                } else {
+                    Err(eyre!("error"))
+                }
+            });
+        let device_clone_count = if start_single_frame_ok { 2 } else { 1 };
+        let inner_mocks = std::sync::Mutex::new(vec![size_clone, start_clone]);
+        clone_mock.expect_clone().times(device_clone_count).returning(move || {
+            inner_mocks.lock().unwrap().pop().unwrap()
+        });
+        // self.device is cloned twice: device + device_for_abort
+        let clone_mock = std::sync::Mutex::new(Some(clone_mock));
+        mock.expect_clone().times(2).returning(move || {
+            clone_mock.lock().unwrap().take().unwrap_or_default()
+        });
+    } else {
+        mock.expect_clone().times(0).return_once(move || clone_mock);
     }
-
-    mock.expect_clone()
-        .times(clone_times)
-        .return_once(move || clone_mock);
     let camera = new_camera(
         mock,
         MockCameraType::WithBinningAndRoiAndCCDInfoUnlimited {
