@@ -414,6 +414,86 @@ async fn start_exposure_success_no_miri(
     }
 }
 
+#[tokio::test]
+async fn abort_exposure_idle() {
+    //given
+    let mock = MockCamera::new();
+    let camera = new_camera(
+        mock,
+        MockCameraType::WithState {
+            times: 1,
+            state: State::Idle,
+        },
+    );
+    //when
+    let res = camera.abort_exposure().await;
+    //then
+    assert!(res.is_ok());
+}
+
+#[tokio::test]
+async fn abort_exposure_exposing() {
+    //given
+    let mock = MockCamera::new();
+    let (stop_tx, _stop_rx) = tokio::sync::oneshot::channel::<StopExposure>();
+    let camera = new_camera(
+        mock,
+        MockCameraType::WithState {
+            times: 1,
+            state: State::Exposing {
+                start: SystemTime::UNIX_EPOCH,
+                expected_duration_us: 1000,
+                stop_tx: Some(stop_tx),
+                done_rx: watch::channel(false).1,
+            },
+        },
+    );
+    //when
+    let res = camera.abort_exposure().await;
+    //then
+    assert!(res.is_ok());
+}
+
+#[tokio::test]
+async fn abort_exposure_channel_already_used() {
+    //given
+    let mock = MockCamera::new();
+    let camera = new_camera(
+        mock,
+        MockCameraType::WithState {
+            times: 1,
+            state: State::Exposing {
+                start: SystemTime::UNIX_EPOCH,
+                expected_duration_us: 1000,
+                stop_tx: None,
+                done_rx: watch::channel(false).1,
+            },
+        },
+    );
+    //when
+    let res = camera.abort_exposure().await;
+    //then
+    assert_eq!(
+        res.err().unwrap().to_string(),
+        ASCOMError::INVALID_OPERATION.to_string()
+    );
+}
+
+#[tokio::test]
+async fn can_get_cooler_power() {
+    //given
+    let mut mock = MockCamera::new();
+    mock.expect_is_control_available()
+        .once()
+        .withf(|control| *control == qhyccd_rs::Control::Cooler)
+        .returning(move |_| Some(0));
+    let camera = new_camera(mock, MockCameraType::IsOpenTrue { times: 1 });
+    //when
+    let res = camera.can_get_cooler_power().await;
+    //then
+    assert!(res.unwrap());
+}
+
 #[rustfmt::skip]
 #[rstest]
 #[case(true, true, 1, true, 1, true, 1, true, 1, 1, Ok(()))]

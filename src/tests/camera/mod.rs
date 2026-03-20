@@ -20,6 +20,7 @@ pub mod exposure;
 pub mod gain_offset;
 pub mod image;
 pub mod properties;
+pub mod readout;
 pub mod roi;
 pub mod sensor;
 pub mod temperature;
