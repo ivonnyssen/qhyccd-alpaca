@@ -79,3 +79,17 @@ jobs:
         with:
           tool: cargo-msrv
       - run: cargo msrv verify
+  msrv-consistency:
+    runs-on: ubuntu-latest
+    name: ubuntu / msrv - readme consistency
+    steps:
+      - uses: actions/checkout@v6
+      - name: Check MSRV consistency between Cargo.toml and README.md
+        run: |
+          MSRV_CARGO=$(grep '^rust-version = ' Cargo.toml | sed 's/rust-version = "\(.*\)"/\1/')
+          if ! grep -q "minimum required Rust version is $MSRV_CARGO" README.md; then
+            echo "ERROR: MSRV mismatch between Cargo.toml ($MSRV_CARGO) and README.md"
+            echo "Please update README.md to match the rust-version in Cargo.toml"
+            exit 1
+          fi
+          echo "MSRV consistency check passed: $MSRV_CARGO"
