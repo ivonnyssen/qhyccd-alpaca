@@ -40,7 +40,7 @@ jobs:
       - name: Install ConformU (GitHub CI)
         if: ${{ !env.ACT }}
         id: conformu
-        uses: ivonnyssen/conformu-install@v1
+        uses: ivonnyssen/conformu-install@v3
       - name: Install ConformU (act)
         if: ${{ env.ACT }}
         run: |
